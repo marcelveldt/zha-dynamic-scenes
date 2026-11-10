@@ -1,4 +1,4 @@
-"""Hue dynamic scenes on Hue lamps paired to ZHA."""
+"""Hue standard and dynamic scenes on lamps paired to ZHA."""
 
 from __future__ import annotations
 
@@ -36,7 +36,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZhaScenesConfigEntry) ->
         raise ConfigEntryNotReady(translation_domain=DOMAIN, translation_key="zha_not_ready")
     entry.runtime_data = await ZhaScenesManager.async_load(hass, entry)
     manager = entry.runtime_data
-    entry.async_on_unload(async_listen_scene_losses(hass, manager.forget_lamp))
+    entry.async_on_unload(
+        async_listen_scene_losses(hass, manager.forget_lamp, manager.forget_group)
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

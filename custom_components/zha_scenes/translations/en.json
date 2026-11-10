@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Play Hue dynamic scenes on Hue lamps paired to ZHA. Zones and palettes are set up in the options afterwards."
+        "description": "Play Hue scenes, the standard whites and the dynamic palettes, on lamps paired to ZHA. Zones and palettes are set up in the options afterwards."
       }
     },
     "abort": {
@@ -18,7 +18,8 @@
           "edit_palette": "Edit a custom palette",
           "remove_palettes": "Remove custom palettes",
           "add_zone": "Add a zone",
-          "edit_zone": "Edit a zone"
+          "edit_zone": "Edit a zone",
+          "lamp_correction": "Lamp correction"
         }
       },
       "add_palette": {
@@ -89,7 +90,7 @@
       },
       "zone_palettes": {
         "title": "Palettes of the zone",
-        "description": "The zone offers each chosen palette as a scene.",
+        "description": "The zone offers each chosen palette as a scene, next to the standard scenes.",
         "data": {
           "palettes": "Palettes"
         }
@@ -106,17 +107,33 @@
         "data": {
           "clusters": "Clusters"
         }
+      },
+      "lamp_correction": {
+        "title": "Lamp correction",
+        "description": "Some LED controllers show warm whites colder than set. A correction makes the standard scenes use warmer settings on such a light.",
+        "data": {
+          "light": "Light"
+        }
+      },
+      "warmest_white": {
+        "title": "Lamp correction",
+        "description": "Enter the warmest white {light} really shows, from {min} K to {max} K. Leave it empty to remove the correction.",
+        "data": {
+          "warmest_white": "Warmest white"
+        }
       }
     },
     "error": {
-      "name_taken": "Another palette already has this name.",
+      "name_taken": "A standard scene or another palette already has this name.",
       "invalid_colors": "Enter 2 to 9 colours as hex RGB, for example #ff8800.",
       "cluster_too_small": "A cluster needs at least two lights.",
-      "no_palettes": "Choose at least one palette."
+      "no_palettes": "Choose at least one palette.",
+      "invalid_warmest_white": "Enter a value from the range above."
     },
     "abort": {
       "not_loaded": "The integration is not running.",
-      "no_lights": "There are no ZHA groups or lights left to add."
+      "no_lights": "There are no ZHA groups or lights left to add.",
+      "no_color_temperature_lights": "There are no ZHA lights with colour temperature."
     }
   },
   "entity": {
@@ -139,17 +156,32 @@
       "blue_planet": {
         "name": "Blue planet"
       },
+      "bright": {
+        "name": "Bright"
+      },
       "cancun": {
         "name": "Cancun"
       },
+      "concentrate": {
+        "name": "Concentrate"
+      },
+      "cool_bright": {
+        "name": "Cool bright"
+      },
       "crocus": {
         "name": "Crocus"
+      },
+      "dimmed": {
+        "name": "Dimmed"
       },
       "dreamy_dusk": {
         "name": "Dreamy dusk"
       },
       "emerald_isle": {
         "name": "Emerald isle"
+      },
+      "energize": {
+        "name": "Energize"
       },
       "forest_adventure": {
         "name": "Forest adventure"
@@ -187,6 +219,9 @@
       "nebula": {
         "name": "Nebula"
       },
+      "nightlight": {
+        "name": "Nightlight"
+      },
       "nighttime": {
         "name": "Nighttime"
       },
@@ -207,6 +242,15 @@
       },
       "precious": {
         "name": "Precious"
+      },
+      "read": {
+        "name": "Read"
+      },
+      "relax": {
+        "name": "Relax"
+      },
+      "rest": {
+        "name": "Rest"
       },
       "rolling_hills": {
         "name": "Rolling hills"
@@ -256,7 +300,7 @@
     },
     "select": {
       "dynamic_scene": {
-        "name": "Dynamic scene"
+        "name": "Scene"
       }
     }
   },
@@ -271,31 +315,31 @@
       "message": "ZHA light {light} does not exist."
     },
     "send_failed": {
-      "message": "Could not start the dynamic scene: {error}"
+      "message": "Could not start the scene: {error}"
     }
   },
   "services": {
     "activate": {
       "name": "Activate",
-      "description": "Starts the palette of a scene on its zone, optionally with another speed, brightness or transition.",
+      "description": "Starts a scene on its zone, optionally with another brightness or transition, and a palette with another speed.",
       "fields": {
         "speed": {
           "name": "Speed",
-          "description": "Animation speed from 0 to 1 instead of the palette's."
+          "description": "Animation speed of a palette from 0 to 1 instead of its own."
         },
         "brightness": {
           "name": "Brightness",
-          "description": "Brightness from 1 to 255 for all lamps instead of the palette's."
+          "description": "Brightness from 1 to 255 for all lamps instead of the scene's."
         },
         "transition": {
           "name": "Transition",
-          "description": "Duration of the transition to the start colours."
+          "description": "Duration of the transition to the scene."
         }
       }
     },
     "rewrite_scenes": {
       "name": "Rewrite scenes",
-      "description": "Writes the zone's palettes to the lamps again, each on its next activation. Use it when scenes were removed from the lamps by other means."
+      "description": "Writes the zone's scenes to the lamps again, each on its next activation. Use it when scenes were removed from the lamps by other means."
     }
   }
 }

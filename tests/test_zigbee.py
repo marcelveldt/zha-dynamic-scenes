@@ -15,17 +15,21 @@ from zigpy.zcl import foundation
 from zigpy.zcl.clusters.general import Scenes
 
 from custom_components.zha_scenes.engine import TransportError
-from custom_components.zha_scenes.models import ZoneConfig
+from custom_components.zha_scenes.models import LampKind, ZoneConfig
 from custom_components.zha_scenes.protocol import (
     ATTR_HUE_FEATURES,
     CLUSTER_HUE_EFFECTS,
+    CLUSTER_LEVEL,
     CLUSTER_SCENES,
     CMD_ADD_HUE_SCENE,
     CMD_DYNAMIC_PALETTE,
+    CMD_MOVE_TO_LEVEL,
+    CMD_RECALL_SCENE,
     MANUFACTURER_SIGNIFY,
 )
 from custom_components.zha_scenes.zigbee import (
     ZhaSceneTransport,
+    async_color_temperature_lights,
     async_device_lights,
     async_zone_lamps,
 )
@@ -108,6 +112,38 @@ async def test_start_dynamic_lamp(hass: HomeAssistant, endpoint: MagicMock) -> N
     )
 
 
+async def test_command(hass: HomeAssistant, endpoint: MagicMock) -> None:
+    endpoint.request = AsyncMock(return_value=None)
+
+    await ZhaSceneTransport(hass).async_command(lamp(1), CLUSTER_LEVEL, CMD_MOVE_TO_LEVEL, b"\xc8")
+
+    # cluster specific without default response, tsn, command 0x00
+    endpoint.request.assert_awaited_once_with(
+        CLUSTER_LEVEL,
+        0x2A,
+        bytes.fromhex("112a00c8"),
+        command_id=CMD_MOVE_TO_LEVEL,
+        expect_reply=False,
+    )
+
+
+async def test_group_command(hass: HomeAssistant) -> None:
+    group = MagicMock()
+    group.get_sequence.return_value = 0x2A
+    group.request = AsyncMock(return_value=None)
+    proxy = MagicMock()
+    proxy.gateway.groups = {GROUP: MagicMock(zigpy_group=group)}
+    with patch(f"{INTEGRATION}.zigbee.get_zha_gateway_proxy", return_value=proxy):
+        await ZhaSceneTransport(hass).async_group_command(
+            GROUP, CLUSTER_SCENES, CMD_RECALL_SCENE, b"\x92\xdd\x0a"
+        )
+
+    # the Home Automation profile, cluster specific without default response, command 0x05
+    group.request.assert_awaited_once_with(
+        0x0104, CLUSTER_SCENES, 0x2A, bytes.fromhex("112a0592dd0a")
+    )
+
+
 async def test_start_dynamic_lamp_not_delivered(hass: HomeAssistant, endpoint: MagicMock) -> None:
     endpoint.request = AsyncMock(side_effect=DeliveryError("no route"))
     with pytest.raises(TransportError, match="no route"):
@@ -128,7 +164,12 @@ def light_proxy() -> Generator[MagicMock]:
         manufacturer="Signify Netherlands B.V.",
     )
     device.device.endpoints = {11: zigpy_endpoint}
-    light = MagicMock(spec=Light, device=device, supported_color_modes={ColorMode.XY})
+    light = MagicMock(
+        spec=Light,
+        device=device,
+        supported_color_modes={ColorMode.XY, ColorMode.COLOR_TEMP},
+        max_mireds=500,
+    )
     light.endpoint.id = 11
     light_ref = MagicMock(ha_entity_id="light.lamp_01")
     light_ref.entity_data.entity = light
@@ -157,6 +198,20 @@ def light_zone(entity_registry: er.EntityRegistry) -> ZoneConfig:
 @pytest.mark.usefixtures("light_proxy")
 async def test_device_lights(hass: HomeAssistant) -> None:
     assert async_device_lights(hass) == {"light.lamp_01": lamp(1).ieee}
+    assert async_color_temperature_lights(hass) == {"light.lamp_01": lamp(1)}
+
+
+async def test_lamp_of_another_brand_without_colour_temperature(
+    hass: HomeAssistant, light_proxy: MagicMock, light_zone: ZoneConfig
+) -> None:
+    light = light_proxy.get_entity_reference("light.lamp_01").entity_data.entity
+    light.device.manufacturer = "GLEDOPTO"
+    light.supported_color_modes = {ColorMode.BRIGHTNESS}
+
+    assert async_zone_lamps(hass, light_zone) == [
+        lamp(1, LampKind.PLAIN, signify=False, max_mireds=None)
+    ]
+    assert async_color_temperature_lights(hass) == {}
 
 
 @pytest.mark.usefixtures("light_proxy")

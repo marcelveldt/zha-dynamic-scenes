@@ -1,8 +1,8 @@
 blueprint:
   name: Hue Tap Dial for ZHA Scenes
   description: >-
-    Each of the four buttons of a Hue Tap Dial paired to ZHA starts a ZHA Scenes palette with its
-    own brightness. Bind the dial to the zone's ZHA group so dimming and off work without Home
+    Each of the four buttons of a Hue Tap Dial paired to ZHA starts a ZHA Scenes scene (a standard
+    scene or a palette) with its own brightness. Bind the dial to the zone's ZHA group so dimming and off work without Home
     Assistant.
   domain: automation
   source_url: https://github.com/marcelveldt/zha-scenes/blob/main/blueprints/automation/zha_scenes/tap_dial.yaml
@@ -17,7 +17,7 @@ blueprint:
             - integration: zha
               model: RDM002
     button_1_scene:
-      name: Button 1 palette
+      name: Button 1 scene
       selector:
         entity:
           filter:
@@ -25,7 +25,7 @@ blueprint:
               domain: scene
     button_1_brightness:
       name: Button 1 brightness
-      description: 0 keeps the palette's own brightness.
+      description: 0 keeps the scene's own brightness.
       default: 0
       selector:
         number:
@@ -33,7 +33,7 @@ blueprint:
           max: 255
           mode: slider
     button_2_scene:
-      name: Button 2 palette
+      name: Button 2 scene
       selector:
         entity:
           filter:
@@ -41,7 +41,7 @@ blueprint:
               domain: scene
     button_2_brightness:
       name: Button 2 brightness
-      description: 0 keeps the palette's own brightness.
+      description: 0 keeps the scene's own brightness.
       default: 0
       selector:
         number:
@@ -49,7 +49,7 @@ blueprint:
           max: 255
           mode: slider
     button_3_scene:
-      name: Button 3 palette
+      name: Button 3 scene
       selector:
         entity:
           filter:
@@ -57,7 +57,7 @@ blueprint:
               domain: scene
     button_3_brightness:
       name: Button 3 brightness
-      description: 0 keeps the palette's own brightness.
+      description: 0 keeps the scene's own brightness.
       default: 0
       selector:
         number:
@@ -65,7 +65,7 @@ blueprint:
           max: 255
           mode: slider
     button_4_scene:
-      name: Button 4 palette
+      name: Button 4 scene
       selector:
         entity:
           filter:
@@ -73,7 +73,7 @@ blueprint:
               domain: scene
     button_4_brightness:
       name: Button 4 brightness
-      description: 0 keeps the palette's own brightness.
+      description: 0 keeps the scene's own brightness.
       default: 0
       selector:
         number:
@@ -82,7 +82,7 @@ blueprint:
           mode: slider
     transition:
       name: Transition
-      description: Fade time when a button starts a palette; empty keeps the default.
+      description: Fade time when a button starts a scene; empty keeps the default.
       default:
       selector:
         number:
@@ -92,7 +92,7 @@ blueprint:
           unit_of_measurement: seconds
           mode: box
 
-# a press waits for the previous start, so the last press decides the palette
+# a press waits for the previous start, so the last press decides the scene
 mode: queued
 max: 10
 max_exceeded: silent

@@ -1,4 +1,4 @@
-"""Data models for palettes, zones and lamps."""
+"""Data models for palettes, standard scenes, zones and lamps."""
 
 from __future__ import annotations
 
@@ -113,6 +113,23 @@ class Palette:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class StandardScene:
+    """
+    A standard scene: a white every zone offers, stored in the lamps under the zone's group.
+
+    :param key: Stable id, also the translation key of its name.
+    :param scene_id: ZCL scene id.
+    :param brightness: Brightness in percent (0..100).
+    :param mireds: Colour temperature in mired.
+    """
+
+    key: str
+    scene_id: int
+    brightness: float
+    mireds: int
+
+
 @dataclass(slots=True)
 class ZoneConfig:
     """
@@ -170,9 +187,14 @@ class Lamp:
     :param endpoint_id: Endpoint of the light, the member of the zone's group.
     :param entity_id: Home Assistant light entity.
     :param kind: What the lamp can do with a palette.
+    :param signify: Whether it is a Signify (Hue) lamp.
+    :param max_mireds: Warmest colour temperature in mired; None for a lamp without colour
+        temperature.
     """
 
     ieee: str
     endpoint_id: int
     entity_id: str
     kind: LampKind
+    signify: bool
+    max_mireds: int | None

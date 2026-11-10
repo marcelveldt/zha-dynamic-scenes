@@ -1,4 +1,4 @@
-"""Per zone select entity to start a palette."""
+"""Per zone select entity to start a standard scene or palette."""
 
 from __future__ import annotations
 
@@ -35,9 +35,9 @@ async def async_setup_entry(
 
 class ZoneSceneSelect(SelectEntity, RestoreEntity):
     """
-    The palettes of a zone; selecting one starts it.
+    The standard scenes and palettes of a zone; selecting one starts it.
 
-    The state is the last started palette: lamps do not report a running palette.
+    The state is the last started scene: lamps do not report what they run.
     """
 
     _attr_has_entity_name = True
@@ -48,13 +48,13 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         """Initialize the entity on the device of the zone's ZHA group or light."""
         self._manager = manager
         self._zone = zone
-        self._palette_ids: dict[str, str] = {}
+        self._keys: dict[str, str] = {}
         self._attr_options = []
         self._attr_unique_id = zone.unique_id
         self.device_entry = async_entity_id_to_device(hass, zone.entity_id)
 
     async def async_added_to_hass(self) -> None:
-        """Load the zone's palettes and the last started one."""
+        """Load the zone's scenes and the last started one."""
         await super().async_added_to_hass()
         self._refresh_options()
         if (state := await self.async_get_last_state()) and state.state in self.options:
@@ -73,9 +73,9 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         )
 
     async def async_select_option(self, option: str) -> None:
-        """Start the selected palette with its own speed and brightness."""
+        """Start the selected scene with its own brightness and, for a palette, speed."""
         await self._manager.async_activate(
-            self._zone.zone_id, self._palette_ids[option], context=self._context
+            self._zone.zone_id, self._keys[option], context=self._context
         )
 
     async def async_rewrite_scenes(self) -> None:
@@ -83,13 +83,12 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         self._manager.async_rewrite_zone(self._zone.zone_id)
 
     @callback
-    def _handle_activated(self, palette_id: str, context: Context | None) -> None:
-        """Show the palette that was started last."""
+    def _handle_activated(self, key: str, context: Context | None) -> None:
+        """Show the scene that was started last."""
         if context is not None:
             self.async_set_context(context)
         self._attr_current_option = next(
-            (label for label, pid in self._palette_ids.items() if pid == palette_id),
-            None,
+            (label for label, option_key in self._keys.items() if option_key == key), None
         )
         self.async_write_ha_state()
 
@@ -101,9 +100,10 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
 
     @callback
     def _refresh_options(self) -> None:
-        """Read the palettes the zone offers."""
-        palettes = self._manager.zone_palettes(self._zone)
-        self._palette_ids = {
-            self._manager.palette_name(palette): palette.palette_id for palette in palettes
-        }
-        self._attr_options = list(self._palette_ids)
+        """Read the scenes the zone offers: the standard scenes, then its palettes by name."""
+        self._keys = {name: key for key, name in self._manager.standard_scene_names().items()}
+        self._keys.update(
+            (self._manager.palette_name(palette), palette.palette_id)
+            for palette in self._manager.zone_palettes(self._zone)
+        )
+        self._attr_options = list(self._keys)

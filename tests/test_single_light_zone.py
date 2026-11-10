@@ -6,13 +6,19 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
+from custom_components.zha_scenes.builtin import STANDARD_SCENES
 from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_scenes.models import ZoneConfig
 from custom_components.zha_scenes.protocol import (
+    CLUSTER_SCENES,
     CMD_ENHANCED_ADD_SCENE,
+    CMD_RECALL_SCENE,
+    ColorTemperatureSceneContent,
     SceneContent,
+    add_color_temperature_scene_payload,
     add_scene_payload,
     dynamic_palette_payload,
+    recall_scene_payload,
 )
 
 from .common import BLUE, GREEN, RED, FakeTransport, lamp
@@ -79,11 +85,15 @@ async def test_entities_on_the_lamp_device(
         entity.unique_id: (entity.entity_id, entity.device_id)
         for entity in er.async_entries_for_config_entry(entity_registry, loaded.entry_id)
     }
+    # every zone offers the standard scenes
+    for key in STANDARD_SCENES:
+        assert entities.pop(f"dd92_{key}") == (f"scene.zone_group_{key}", group_device.id)
+        assert entities.pop(f"{IEEE}_{key}") == (f"scene.lamp_01_{key}", lamp_light.device_id)
     assert entities == {
-        "dd92": ("select.zone_group_dynamic_scene", group_device.id),
+        "dd92": ("select.zone_group_scene", group_device.id),
         "dd92_custom:a": ("scene.zone_group_custom_a", group_device.id),
         "dd92_custom:b": ("scene.zone_group_custom_b", group_device.id),
-        IEEE: ("select.lamp_01_dynamic_scene", lamp_light.device_id),
+        IEEE: ("select.lamp_01_scene", lamp_light.device_id),
         f"{IEEE}_custom:a": ("scene.lamp_01_custom_a", lamp_light.device_id),
         f"{IEEE}_custom:b": ("scene.lamp_01_custom_b", lamp_light.device_id),
     }
@@ -107,11 +117,11 @@ async def test_scene_starts_the_palette_with_a_unicast(
     )
     assert transport.requests == [write]
     assert calls == []
-    assert hass.states.get("select.lamp_01_dynamic_scene").state == "custom:a"
-    assert hass.states.get("select.zone_group_dynamic_scene").state == STATE_UNKNOWN
+    assert hass.states.get("select.lamp_01_scene").state == "custom:a"
+    assert hass.states.get("select.zone_group_scene").state == STATE_UNKNOWN
 
     await hass.services.async_call(
-        DOMAIN, "rewrite_scenes", {ATTR_ENTITY_ID: "select.lamp_01_dynamic_scene"}, blocking=True
+        DOMAIN, "rewrite_scenes", {ATTR_ENTITY_ID: "select.lamp_01_scene"}, blocking=True
     )
     await hass.services.async_call("scene", "turn_on", scene, blocking=True)
     assert transport.requests == [write, write]
@@ -127,3 +137,44 @@ async def test_scene_starts_the_palette_with_a_unicast(
         IEEE: 0x80,
         str(GROUP): 0x81,
     }
+
+
+async def test_standard_scene_is_stored_in_group_zero_and_recalled_with_a_unicast(
+    hass: HomeAssistant, loaded: MockConfigEntry, transport: FakeTransport
+) -> None:
+    scene = {ATTR_ENTITY_ID: "scene.lamp_01_relax"}
+    for _ in range(2):
+        await hass.services.async_call("scene", "turn_on", scene, blocking=True)
+
+    relax = ColorTemperatureSceneContent(level=143, mireds=447)
+    assert transport.requests == [
+        (IEEE, CMD_ENHANCED_ADD_SCENE, add_color_temperature_scene_payload(0, 11, relax, 4))
+    ]
+    recall = (IEEE, CLUSTER_SCENES, CMD_RECALL_SCENE, recall_scene_payload(0, 11))
+    assert transport.commands == [recall, recall]
+    assert transport.group_commands == []
+    assert hass.states.get("select.lamp_01_scene").state == "Relax"
+
+    # the group zone holding the same lamp stores it under its own group
+    await hass.services.async_call(
+        "scene", "turn_on", {ATTR_ENTITY_ID: "scene.zone_group_relax"}, blocking=True
+    )
+    assert (
+        IEEE,
+        CMD_ENHANCED_ADD_SCENE,
+        add_color_temperature_scene_payload(GROUP, 11, relax, 4),
+    ) in transport.requests
+
+    # rewriting the single light forgets only its own scenes
+    transport.requests.clear()
+    await hass.services.async_call(
+        DOMAIN, "rewrite_scenes", {ATTR_ENTITY_ID: "select.lamp_01_scene"}, blocking=True
+    )
+    await hass.services.async_call(
+        "scene", "turn_on", {ATTR_ENTITY_ID: "scene.zone_group_relax"}, blocking=True
+    )
+    assert transport.requests == []
+    await hass.services.async_call("scene", "turn_on", scene, blocking=True)
+    assert transport.requests == [
+        (IEEE, CMD_ENHANCED_ADD_SCENE, add_color_temperature_scene_payload(0, 11, relax, 4))
+    ]

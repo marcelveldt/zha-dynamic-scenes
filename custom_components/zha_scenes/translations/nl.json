@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Speel Hue dynamische scènes af op Hue-lampen die aan ZHA gekoppeld zijn. Zones en paletten stel je daarna in bij de opties."
+        "description": "Speel Hue-scènes af, de standaard witte scènes en de dynamische paletten, op lampen die aan ZHA gekoppeld zijn. Zones en paletten stel je daarna in bij de opties."
       }
     },
     "abort": {
@@ -18,7 +18,8 @@
           "edit_palette": "Eigen palet bewerken",
           "remove_palettes": "Eigen paletten verwijderen",
           "add_zone": "Zone toevoegen",
-          "edit_zone": "Zone bewerken"
+          "edit_zone": "Zone bewerken",
+          "lamp_correction": "Lampcorrectie"
         }
       },
       "add_palette": {
@@ -89,7 +90,7 @@
       },
       "zone_palettes": {
         "title": "Paletten van de zone",
-        "description": "De zone biedt elk gekozen palet aan als scène.",
+        "description": "De zone biedt elk gekozen palet aan als scène, naast de standaardscènes.",
         "data": {
           "palettes": "Paletten"
         }
@@ -106,17 +107,33 @@
         "data": {
           "clusters": "Clusters"
         }
+      },
+      "lamp_correction": {
+        "title": "Lampcorrectie",
+        "description": "Sommige ledcontrollers tonen warm wit kouder dan ingesteld. Met een correctie gebruiken de standaardscènes op zo'n lamp warmere instellingen.",
+        "data": {
+          "light": "Lamp"
+        }
+      },
+      "warmest_white": {
+        "title": "Lampcorrectie",
+        "description": "Geef het warmste wit dat {light} echt toont, van {min} K tot {max} K. Laat het leeg om de correctie te verwijderen.",
+        "data": {
+          "warmest_white": "Warmste wit"
+        }
       }
     },
     "error": {
-      "name_taken": "Een ander palet heeft deze naam al.",
+      "name_taken": "Een standaardscène of een ander palet heeft deze naam al.",
       "invalid_colors": "Geef 2 tot 9 kleuren op als hex RGB, bijvoorbeeld #ff8800.",
       "cluster_too_small": "Een cluster heeft minstens twee lampen nodig.",
-      "no_palettes": "Kies minstens één palet."
+      "no_palettes": "Kies minstens één palet.",
+      "invalid_warmest_white": "Geef een waarde uit het bereik hierboven."
     },
     "abort": {
       "not_loaded": "De integratie draait niet.",
-      "no_lights": "Er zijn geen ZHA-groepen of lampen meer om toe te voegen."
+      "no_lights": "Er zijn geen ZHA-groepen of lampen meer om toe te voegen.",
+      "no_color_temperature_lights": "Er zijn geen ZHA-lampen met kleurtemperatuur."
     }
   },
   "entity": {
@@ -139,17 +156,32 @@
       "blue_planet": {
         "name": "Blauwe planeet"
       },
+      "bright": {
+        "name": "Helder"
+      },
       "cancun": {
         "name": "Cancun"
       },
+      "concentrate": {
+        "name": "Concentreren"
+      },
+      "cool_bright": {
+        "name": "Koel helder"
+      },
       "crocus": {
         "name": "Krokus"
+      },
+      "dimmed": {
+        "name": "Gedimd"
       },
       "dreamy_dusk": {
         "name": "Dromerige schemering"
       },
       "emerald_isle": {
         "name": "Smaragden eiland"
+      },
+      "energize": {
+        "name": "Energie"
       },
       "forest_adventure": {
         "name": "Bosavontuur"
@@ -187,6 +219,9 @@
       "nebula": {
         "name": "Nevel"
       },
+      "nightlight": {
+        "name": "Nachtlampje"
+      },
       "nighttime": {
         "name": "'s Nachts"
       },
@@ -207,6 +242,15 @@
       },
       "precious": {
         "name": "Precious"
+      },
+      "read": {
+        "name": "Lezen"
+      },
+      "relax": {
+        "name": "Ontspannen"
+      },
+      "rest": {
+        "name": "Rusten"
       },
       "rolling_hills": {
         "name": "Glooiende heuvels"
@@ -256,7 +300,7 @@
     },
     "select": {
       "dynamic_scene": {
-        "name": "Dynamische scène"
+        "name": "Scène"
       }
     }
   },
@@ -271,31 +315,31 @@
       "message": "ZHA-lamp {light} bestaat niet."
     },
     "send_failed": {
-      "message": "De dynamische scène kon niet worden gestart: {error}"
+      "message": "De scène kon niet worden gestart: {error}"
     }
   },
   "services": {
     "activate": {
       "name": "Activeren",
-      "description": "Start het palet van een scène op de zone, eventueel met een andere snelheid, helderheid of overgang.",
+      "description": "Start een scène op de zone, eventueel met een andere helderheid of overgang, en een palet met een andere snelheid.",
       "fields": {
         "speed": {
           "name": "Snelheid",
-          "description": "Animatiesnelheid van 0 tot 1 in plaats van die van het palet."
+          "description": "Animatiesnelheid van een palet van 0 tot 1 in plaats van die van het palet."
         },
         "brightness": {
           "name": "Helderheid",
-          "description": "Helderheid van 1 tot 255 voor alle lampen in plaats van die van het palet."
+          "description": "Helderheid van 1 tot 255 voor alle lampen in plaats van die van de scène."
         },
         "transition": {
           "name": "Overgang",
-          "description": "Duur van de overgang naar de startkleuren."
+          "description": "Duur van de overgang naar de scène."
         }
       }
     },
     "rewrite_scenes": {
       "name": "Scènes opnieuw schrijven",
-      "description": "Schrijft de paletten van de zone opnieuw naar de lampen, elk bij de volgende activering. Gebruik dit als scènes op een andere manier uit de lampen zijn verwijderd."
+      "description": "Schrijft de scènes van de zone opnieuw naar de lampen, elk bij de volgende activering. Gebruik dit als scènes op een andere manier uit de lampen zijn verwijderd."
     }
   }
 }

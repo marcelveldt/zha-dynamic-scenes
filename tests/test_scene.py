@@ -11,6 +11,7 @@ import probatio
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
+from custom_components.zha_scenes.builtin import STANDARD_SCENES
 from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_scenes.engine import TransportError
 from custom_components.zha_scenes.protocol import dynamic_palette_payload
@@ -21,7 +22,8 @@ from .conftest import GROUP
 SCENE_A = "scene.zone_group_custom_a"
 SCENE_B = "scene.zone_group_custom_b"
 SCENE_BLOSSOM = "scene.zone_group_blossom"
-SELECT = "select.zone_group_dynamic_scene"
+SCENE_COOL_BRIGHT = "scene.zone_group_cool_bright"
+SELECT = "select.zone_group_scene"
 COLORS = [RED.xy, GREEN.xy, BLUE.xy]
 
 
@@ -38,12 +40,17 @@ async def test_scene_per_offered_palette(
         for entity in er.async_entries_for_config_entry(entity_registry, loaded.entry_id)
         if entity.domain == "scene"
     }
+    standard = {
+        f"scene.zone_group_{key}": (f"dd92_{key}", group_device.id) for key in STANDARD_SCENES
+    }
     assert scenes == {
+        **standard,
         SCENE_A: ("dd92_custom:a", group_device.id),
         SCENE_B: ("dd92_custom:b", group_device.id),
         SCENE_BLOSSOM: ("dd92_blossom", group_device.id),
     }
     assert hass.states.get(SCENE_BLOSSOM).name == "Zone group Blossom"
+    assert hass.states.get(SCENE_COOL_BRIGHT).name == "Zone group Cool bright"
 
 
 async def test_builtin_palette_names_are_translated(
@@ -53,7 +60,21 @@ async def test_builtin_palette_names_are_translated(
     await _offer(hass, loaded, ["custom:a", "blossom"])
 
     assert hass.states.get("scene.zone_group_bloesem").name == "Zone group Bloesem"
-    assert hass.states.get(SELECT).attributes["options"] == ["Bloesem", "custom:a"]
+    # registered before the language changed, so it keeps its English entity id
+    assert hass.states.get(SCENE_COOL_BRIGHT).name == "Zone group Koel helder"
+    assert hass.states.get(SELECT).attributes["options"] == [
+        "Gedimd",
+        "Ontspannen",
+        "Lezen",
+        "Helder",
+        "Nachtlampje",
+        "Concentreren",
+        "Energie",
+        "Rusten",
+        "Koel helder",
+        "Bloesem",
+        "custom:a",
+    ]
 
 
 async def test_turn_on_starts_the_palette(

@@ -23,13 +23,22 @@ FEATURES_GRADIENT = 0x2F
 FEATURES_COLOR = 0x07
 
 
-def lamp(n: int, kind: LampKind = LampKind.DYNAMIC) -> Lamp:
-    """Return lamp number n; entity ids sort in lamp order."""
+def lamp(
+    n: int,
+    kind: LampKind = LampKind.DYNAMIC,
+    *,
+    signify: bool = True,
+    max_mireds: int | None = 500,
+) -> Lamp:
+    """Return lamp number n, a Hue lamp with colour temperature unless told otherwise."""
+    # entity ids sort in lamp order
     return Lamp(
         ieee=f"00:17:88:01:00:00:00:{n:02x}",
         endpoint_id=11,
         entity_id=f"light.lamp_{n:02d}",
         kind=kind,
+        signify=signify,
+        max_mireds=max_mireds,
     )
 
 
@@ -56,6 +65,10 @@ class FakeTransport:
         self.groupcasts: list[tuple[int, bytes]] = []
         # dynamic palette starts sent to one lamp
         self.unicasts: list[tuple[str, bytes]] = []
+        # other commands sent without waiting for a response: (ieee or group, cluster, command,
+        # payload)
+        self.commands: list[tuple[str, int, int, bytes]] = []
+        self.group_commands: list[tuple[int, int, int, bytes]] = []
         # ieee -> statuses to answer in turn; None means no response
         self.answers: dict[str, list[int | None]] = {}
         # ieee -> Hue features bitmap; None means no response
@@ -91,3 +104,15 @@ class FakeTransport:
     async def async_start_dynamic_lamp(self, lamp: Lamp, payload: bytes) -> None:
         """Record a dynamic start sent to one lamp."""
         self.unicasts.append((lamp.ieee, payload))
+
+    async def async_command(
+        self, lamp: Lamp, cluster_id: int, command_id: int, payload: bytes
+    ) -> None:
+        """Record a command sent to one lamp."""
+        self.commands.append((lamp.ieee, cluster_id, command_id, payload))
+
+    async def async_group_command(
+        self, group_id: int, cluster_id: int, command_id: int, payload: bytes
+    ) -> None:
+        """Record a groupcast command."""
+        self.group_commands.append((group_id, cluster_id, command_id, payload))

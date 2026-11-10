@@ -20,6 +20,8 @@ from zha.application.const import (
     ZHA_GW_MSG_DEVICE_INFO,
     ZHA_GW_MSG_DEVICE_JOINED,
     ZHA_GW_MSG_DEVICE_REMOVED,
+    ZHA_GW_MSG_GROUP_INFO,
+    ZHA_GW_MSG_GROUP_MEMBER_REMOVED,
 )
 from zha.application.platforms.light import BaseLight, Light
 from zha.application.platforms.light.const import ColorMode
@@ -37,7 +39,6 @@ from .protocol import (
     CLUSTER_SCENES,
     CMD_DYNAMIC_PALETTE,
     MANUFACTURER_SIGNIFY,
-    dynamic_palette_frame,
     zcl_frame,
 )
 
@@ -108,17 +109,13 @@ class ZhaSceneTransport:
 
         :raises TransportError: The frame could not be sent.
         """
-        group = _gateway_proxy(self._hass).gateway.groups[group_id].zigpy_group
-        tsn = group.get_sequence()
-        try:
-            await group.request(  # type: ignore[no-untyped-call]
-                zha_profile.PROFILE_ID,
-                CLUSTER_SCENES,
-                tsn,
-                dynamic_palette_frame(tsn, payload),
-            )
-        except (ZigbeeException, TimeoutError) as err:
-            raise TransportError(str(err) or type(err).__name__) from err
+        await self.async_group_command(
+            group_id,
+            CLUSTER_SCENES,
+            CMD_DYNAMIC_PALETTE,
+            payload,
+            manufacturer=MANUFACTURER_SIGNIFY,
+        )
 
     async def async_start_dynamic_lamp(self, lamp: Lamp, payload: bytes) -> None:
         """
@@ -126,16 +123,61 @@ class ZhaSceneTransport:
 
         :raises TransportError: The frame could not be sent.
         """
+        await self.async_command(
+            lamp, CLUSTER_SCENES, CMD_DYNAMIC_PALETTE, payload, manufacturer=MANUFACTURER_SIGNIFY
+        )
+
+    async def async_command(
+        self,
+        lamp: Lamp,
+        cluster_id: int,
+        command_id: int,
+        payload: bytes,
+        *,
+        manufacturer: int | None = None,
+    ) -> None:
+        """
+        Unicast a cluster command to one lamp without waiting for a response.
+
+        :param manufacturer: Manufacturer code of a manufacturer specific command.
+        :raises TransportError: The frame could not be sent.
+        """
         device = _gateway_proxy(self._hass).gateway.devices[EUI64.convert(lamp.ieee)]
         tsn = device.device.get_sequence()
         endpoint = device.device.endpoints[lamp.endpoint_id]
+        frame = zcl_frame(
+            tsn, command_id, payload, manufacturer=manufacturer, disable_default_response=True
+        )
         try:
             await endpoint.request(
-                CLUSTER_SCENES,
-                tsn,
-                dynamic_palette_frame(tsn, payload),
-                command_id=CMD_DYNAMIC_PALETTE,
-                expect_reply=False,
+                cluster_id, tsn, frame, command_id=command_id, expect_reply=False
+            )
+        except (ZigbeeException, TimeoutError) as err:
+            raise TransportError(str(err) or type(err).__name__) from err
+
+    async def async_group_command(
+        self,
+        group_id: int,
+        cluster_id: int,
+        command_id: int,
+        payload: bytes,
+        *,
+        manufacturer: int | None = None,
+    ) -> None:
+        """
+        Groupcast a cluster command to a Zigbee group.
+
+        :param manufacturer: Manufacturer code of a manufacturer specific command.
+        :raises TransportError: The frame could not be sent.
+        """
+        group = _gateway_proxy(self._hass).gateway.groups[group_id].zigpy_group
+        tsn = group.get_sequence()
+        frame = zcl_frame(
+            tsn, command_id, payload, manufacturer=manufacturer, disable_default_response=True
+        )
+        try:
+            await group.request(  # type: ignore[no-untyped-call]
+                zha_profile.PROFILE_ID, cluster_id, tsn, frame
             )
         except (ZigbeeException, TimeoutError) as err:
             raise TransportError(str(err) or type(err).__name__) from err
@@ -177,6 +219,18 @@ def async_device_lights(hass: HomeAssistant) -> dict[str, str]:
 
 
 @callback
+def async_color_temperature_lights(hass: HomeAssistant) -> dict[str, Lamp]:
+    """Return the ZHA device lights with colour temperature as lamps, by entity id."""
+    lamps = (
+        _lamp(light.device, light.endpoint.id, ref.ha_entity_id, light)
+        for refs in _gateway_proxy(hass).ha_entity_refs.values()
+        for ref in refs
+        if isinstance(light := ref.entity_data.entity, Light)
+    )
+    return {lamp.entity_id: lamp for lamp in lamps if lamp.max_mireds is not None}
+
+
+@callback
 def async_zone_lamps(hass: HomeAssistant, zone: ZoneConfig) -> list[Lamp]:
     """
     Return the available lights of a zone.
@@ -200,14 +254,7 @@ def async_zone_lamps(hass: HomeAssistant, zone: ZoneConfig) -> list[Lamp]:
         )
         if entity_id is None:
             continue
-        lamps.append(
-            Lamp(
-                ieee=str(member.device.ieee),
-                endpoint_id=member.endpoint_id,
-                entity_id=entity_id,
-                kind=_lamp_kind(member.device, member.endpoint_id, light),
-            )
-        )
+        lamps.append(_lamp(member.device, member.endpoint_id, entity_id, light))
     return lamps
 
 
@@ -220,20 +267,24 @@ def async_group_name(hass: HomeAssistant, group_id: int) -> str | None:
 
 @callback
 def async_listen_scene_losses(
-    hass: HomeAssistant, forget_lamp: Callable[[str], None]
+    hass: HomeAssistant, forget_lamp: Callable[[str], None], forget_group: Callable[[int], None]
 ) -> CALLBACK_TYPE:
     """
-    Report devices that may have lost their stored scenes.
+    Report devices and groups that may have lost their stored scenes.
 
     :param forget_lamp: Called with the IEEE of a device that joined with a new address
         (a reset lamp gets one) or was removed from ZHA. A power cycle keeps the address
         and the scenes.
+    :param forget_group: Called with the id of a ZHA group that lost a member; a lamp
+        leaving a group drops the scenes stored under it.
     """
 
     @callback
     def _handle(message: dict[str, Any]) -> None:
         if message[ATTR_TYPE] in (ZHA_GW_MSG_DEVICE_JOINED, ZHA_GW_MSG_DEVICE_REMOVED):
             forget_lamp(message[ZHA_GW_MSG_DEVICE_INFO][ATTR_IEEE])
+        elif message[ATTR_TYPE] == ZHA_GW_MSG_GROUP_MEMBER_REMOVED:
+            forget_group(int(message[ZHA_GW_MSG_GROUP_INFO]["group_id"]))
 
     return async_dispatcher_connect(hass, ZHA_GW_MSG, _handle)
 
@@ -271,14 +322,21 @@ def _single_lamp(hass: HomeAssistant, proxy: ZHAGatewayProxy, entity_id: str) ->
         )
     if not light.device.available:
         return []
-    return [
-        Lamp(
-            ieee=str(light.device.ieee),
-            endpoint_id=light.endpoint.id,
-            entity_id=ref.ha_entity_id,
-            kind=_lamp_kind(light.device, light.endpoint.id, light),
-        )
-    ]
+    return [_lamp(light.device, light.endpoint.id, ref.ha_entity_id, light)]
+
+
+def _lamp(device: Device, endpoint_id: int, entity_id: str, light: BaseLight) -> Lamp:
+    """Return a light on an endpoint of a device as a lamp."""
+    return Lamp(
+        ieee=str(device.ieee),
+        endpoint_id=endpoint_id,
+        entity_id=entity_id,
+        kind=_lamp_kind(device, endpoint_id, light),
+        signify=device.manufacturer in SIGNIFY_MANUFACTURERS,
+        max_mireds=(
+            light.max_mireds if ColorMode.COLOR_TEMP in light.supported_color_modes else None
+        ),
+    )
 
 
 def _lamp_kind(device: Device, endpoint_id: int, light: BaseLight) -> LampKind:

@@ -1,5 +1,5 @@
 """
-ZCL frames for Hue dynamic palettes and the scenes they start from.
+ZCL frames for Hue dynamic palettes, standard scenes and the scenes they start from.
 
 Pure encoding, no Home Assistant or zigpy imports.
 """
@@ -19,7 +19,10 @@ CLUSTER_COLOR = 0x0300
 CLUSTER_HUE_EFFECTS = 0xFC03
 
 CMD_REMOVE_SCENE = 0x02
+CMD_STORE_SCENE = 0x04
+CMD_RECALL_SCENE = 0x05
 CMD_ENHANCED_ADD_SCENE = 0x40
+CMD_MOVE_TO_LEVEL = 0x00  # Level cluster, without on/off
 CMD_DYNAMIC_PALETTE = 0x00  # manufacturer specific, same id as Add Scene
 CMD_ADD_HUE_SCENE = 0x02  # manufacturer specific, same id as Remove Scene
 
@@ -93,6 +96,20 @@ class SceneContent:
 
 
 @dataclass(frozen=True, slots=True)
+class ColorTemperatureSceneContent:
+    """
+    State a lamp stores for a standard scene: on, level and colour temperature.
+
+    :param level: Level 1..254.
+    :param mireds: Colour temperature in mired; None for a lamp without colour temperature,
+        which stores on and level only.
+    """
+
+    level: int
+    mireds: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class GradientSceneContent:
     """
     State a gradient lamp stores for a scene: on, level and gradient.
@@ -145,17 +162,6 @@ def zcl_frame(
     if manufacturer is not None:
         header += struct.pack("<H", manufacturer)
     return header + bytes([tsn, command_id]) + payload
-
-
-def dynamic_palette_frame(tsn: int, payload: bytes) -> bytes:
-    """Return the Signify Scenes frame that starts a dynamic palette."""
-    return zcl_frame(
-        tsn,
-        CMD_DYNAMIC_PALETTE,
-        payload,
-        manufacturer=MANUFACTURER_SIGNIFY,
-        disable_default_response=True,
-    )
 
 
 def dynamic_palette_payload(
@@ -218,6 +224,62 @@ def add_scene_payload(
         + struct.pack("<HBB", CLUSTER_LEVEL, 1, content.level)
         + struct.pack("<HBHH", CLUSTER_COLOR, 4, content.x, content.y)
     )
+
+
+def add_color_temperature_scene_payload(
+    group_id: int, scene_id: int, content: ColorTemperatureSceneContent, transition: int
+) -> bytes:
+    """
+    Return the payload of an Enhanced Add Scene with on, level and colour temperature.
+
+    :param transition: Transition time in 1/10 s used when the scene is applied.
+    """
+    payload = (
+        add_empty_scene_payload(group_id, scene_id, transition)
+        + struct.pack("<HBB", CLUSTER_ON_OFF, 1, 1)
+        + struct.pack("<HBB", CLUSTER_LEVEL, 1, content.level)
+    )
+    if content.mireds is None:
+        return payload
+    # the colour set as Hue lamps store it; x and y stay 0, so the lamps recall the scene in
+    # colour temperature mode
+    return payload + struct.pack(
+        "<HBHHHBBBHH", CLUSTER_COLOR, 13, 0, 0, 0, 0, 0, 0, 0, content.mireds
+    )
+
+
+def add_empty_scene_payload(group_id: int, scene_id: int, transition: int) -> bytes:
+    """
+    Return the payload of an Enhanced Add Scene without state, to be filled by Store Scene.
+
+    :param transition: Transition time in 1/10 s used when the scene is applied.
+    """
+    return struct.pack("<HBHB", group_id, scene_id, transition, 0)  # empty scene name
+
+
+def store_scene_payload(group_id: int, scene_id: int) -> bytes:
+    """Return the payload of a Store Scene, which stores the lamp's current state."""
+    return struct.pack("<HB", group_id, scene_id)
+
+
+def recall_scene_payload(group_id: int, scene_id: int, transition: int | None = None) -> bytes:
+    """
+    Return the payload of a Recall Scene.
+
+    :param transition: Transition time in 1/10 s instead of the stored one.
+    """
+    payload = struct.pack("<HB", group_id, scene_id)
+    return payload if transition is None else payload + struct.pack("<H", transition)
+
+
+def move_to_level_payload(level: int, transition: int) -> bytes:
+    """
+    Return the payload of a Move to Level (without on/off).
+
+    :param level: Level 1..254.
+    :param transition: Transition time in 1/10 s.
+    """
+    return struct.pack("<BH", min(MAX_LEVEL, level), transition)
 
 
 def gradient_scene_payload(
