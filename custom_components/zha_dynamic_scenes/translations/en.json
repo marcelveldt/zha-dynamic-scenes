@@ -24,7 +24,7 @@
       },
       "import_hue": {
         "title": "Import from a Hue bridge",
-        "description": "Reads the dynamic scenes of the bridge. Nothing is changed on the bridge. Import before moving lamps to ZHA: the per-lamp start colours come along.",
+        "description": "Reads the dynamic scenes of the bridge. Nothing is changed on the bridge. Import before moving lamps to ZHA: each palette then knows the lamps of its scene, so zones offer the right palettes.",
         "data": {
           "hue_host": "Host",
           "hue_app_key": "Application key"

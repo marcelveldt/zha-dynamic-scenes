@@ -24,7 +24,7 @@
       },
       "import_hue": {
         "title": "Importeren van een Hue-bridge",
-        "description": "Leest de dynamische scènes van de bridge. Er wordt niets op de bridge gewijzigd. Importeer voordat je lampen naar ZHA verhuist: de startkleuren per lamp komen dan mee.",
+        "description": "Leest de dynamische scènes van de bridge. Er wordt niets op de bridge gewijzigd. Importeer voordat je lampen naar ZHA verhuist: dan weet elk palet bij welke lampen het hoort, zodat zones de juiste paletten aanbieden.",
         "data": {
           "hue_host": "Host",
           "hue_app_key": "Applicatiesleutel"

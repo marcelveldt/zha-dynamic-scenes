@@ -92,7 +92,7 @@ URL.
    the first colour of its gradient.
 
 Brightness percentages become levels the way the Hue bridge maps them,
-`1 + floor(percent * 253 / 100 + 0.5)`, so lamps end at the same level as under the bridge.
+`1 + floor(percent * 253 / 100 + 0.5)`, so a percentage gives the same level as under the bridge.
 
 ## Scene slots and the cache
 
