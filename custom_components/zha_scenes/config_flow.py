@@ -377,6 +377,15 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         ]
 
     @callback
+    def _name_taken(self, name: str, palette: Palette | None) -> bool:
+        """Return whether another palette already shows this name; zones list palettes by name."""
+        return any(
+            self._manager.palette_name(other).casefold() == name.casefold()
+            for other in self._manager.palettes.values()
+            if palette is None or other.palette_id != palette.palette_id
+        )
+
+    @callback
     def _async_palette_form(
         self, step_id: str, palette: Palette | None, user_input: dict[str, Any] | None
     ) -> ConfigFlowResult:
@@ -386,6 +395,8 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
             if palette is not None and user_input.get(CONF_DELETE):
                 self._manager.async_remove_palettes([palette.palette_id])
                 return self._async_save()
+            if self._name_taken(user_input[CONF_NAME], palette):
+                errors[CONF_NAME] = "name_taken"
             try:
                 if palette is not None and user_input[CONF_COLORS] == _colors_text(palette):
                     # hex RGB is lossy: unchanged text keeps the exact colours
@@ -394,7 +405,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
                     colors = _parse_colors(user_input[CONF_COLORS])
             except ValueError:
                 errors[CONF_COLORS] = "invalid_colors"
-            else:
+            if not errors:
                 self._manager.async_update_palettes(
                     [
                         Palette(

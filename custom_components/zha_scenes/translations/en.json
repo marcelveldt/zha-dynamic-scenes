@@ -109,6 +109,7 @@
       }
     },
     "error": {
+      "name_taken": "Another palette already has this name.",
       "invalid_colors": "Enter 2 to 9 colours as hex RGB, for example #ff8800.",
       "cluster_too_small": "A cluster needs at least two lights.",
       "no_palettes": "Choose at least one palette."

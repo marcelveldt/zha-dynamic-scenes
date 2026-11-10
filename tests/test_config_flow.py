@@ -69,6 +69,12 @@ async def test_custom_palette_add_edit_delete(
         {"name": "Mine", "colors": "bad", "speed": 0.4, "brightness": 50},
     )
     assert result["errors"] == {"colors": "invalid_colors"}
+    # zones list palettes by name, so the name of another palette is refused
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"name": "blossom", "colors": "#ff0000,#0000ff", "speed": 0.4, "brightness": 50},
+    )
+    assert result["errors"] == {"name": "name_taken"}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"name": "Renamed", "colors": "#ff0000,#0000ff,#00ff00", "speed": 1, "brightness": 20},
