@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
     OptionsFlowWithReload,
 )
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -501,12 +502,16 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
 
     @callback
     def _lamp_names(self, zone: ZoneConfig) -> dict[str, str]:
-        """Return the names of a zone's lamps by IEEE."""
+        """Return the names of a zone's lamps by IEEE, empty when its group or light is gone."""
+        try:
+            lamps = async_zone_lamps(self.hass, zone)
+        except HomeAssistantError:
+            return {}
         return {
             lamp.ieee: state.name
             if (state := self.hass.states.get(lamp.entity_id))
             else lamp.entity_id
-            for lamp in async_zone_lamps(self.hass, zone)
+            for lamp in lamps
         }
 
 

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, get_schema_suggested_value
@@ -259,6 +260,23 @@ async def test_add_single_light_zone(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "delete_zone"}
     )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES] == []
+
+
+async def test_delete_zone_whose_light_is_gone(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    removed = HomeAssistantError("the zone's light was removed from ZHA")
+    with patch(f"{INTEGRATION}.config_flow.async_zone_lamps", side_effect=removed):
+        result = await _menu(hass, loaded, "edit_zone")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"zone": ZONE_ID}
+        )
+        assert result["step_id"] == "zone"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "delete_zone"}
+        )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ZONES] == []
 
