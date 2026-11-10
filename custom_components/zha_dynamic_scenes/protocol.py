@@ -17,8 +17,8 @@ CLUSTER_SCENES = 0x0005
 CLUSTER_COLOR = 0x0300
 CLUSTER_HUE_EFFECTS = 0xFC03
 
-CMD_ADD_SCENE = 0x00
 CMD_REMOVE_SCENE = 0x02
+CMD_ENHANCED_ADD_SCENE = 0x40
 CMD_DYNAMIC_PALETTE = 0x00  # manufacturer specific, same id as Add Scene
 
 STATUS_SUCCESS = 0x00
@@ -156,7 +156,7 @@ def add_scene_payload(
     group_id: int, scene_id: int, content: SceneContent, transition: int
 ) -> bytes:
     """
-    Return the payload of a standard Add Scene with on, level and colour.
+    Return the payload of an Enhanced Add Scene with on, level and colour.
 
     :param transition: Transition time in 1/10 s used when the scene is applied.
     """

@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 from .models import Lamp, LightAction, Palette, PaletteColor
 from .protocol import (
-    CMD_ADD_SCENE,
+    CMD_ENHANCED_ADD_SCENE,
     CMD_REMOVE_SCENE,
     STATUS_INSUFFICIENT_SPACE,
     STATUS_SUCCESS,
@@ -27,6 +27,9 @@ _LOGGER = logging.getLogger(__name__)
 
 FIRST_SCENE_ID = 0x80
 LAST_SCENE_ID = 0xFE
+# like the Hue bridge: scenes of a real group would be lost when a lamp leaves that group
+# or when a Remove All Scenes is sent to it
+SCENE_GROUP = 0x0000
 SCENE_TRANSITION = 4  # 1/10 s, the Hue default
 
 
@@ -108,7 +111,9 @@ class SceneCache:
     """
     Scene slots per zone and the scene content each lamp is known to store.
 
-    The state is a JSON serializable dict; `save` is called after every change.
+    All scenes are stored in group 0x0000 and a lamp can be in several zones, so scene ids
+    are unique over all zones. The state is a JSON serializable dict; `save` is called
+    after every change.
     """
 
     def __init__(self, data: dict[str, Any], save: Callable[[], None]) -> None:
@@ -118,9 +123,9 @@ class SceneCache:
         :param data: State from `as_dict`, or an empty dict.
         :param save: Called after every change to persist `as_dict`.
         """
-        # group id -> palette id -> {"scene_id": int, "used": int}
+        # zone group id -> palette id -> {"scene_id": int, "used": int}
         self._slots: dict[str, dict[str, dict[str, int]]] = data.get("slots", {})
-        # ieee -> "group id/scene id" -> [level, x, y]
+        # ieee -> scene id -> [level, x, y]
         self._scenes: dict[str, dict[str, list[int]]] = data.get("scenes", {})
         self._save = save
 
@@ -138,17 +143,20 @@ class SceneCache:
         """
         Give a palette a scene id in a zone.
 
-        Takes the lowest free id, or the id of the least recently used palette when all
-        are taken; its scene is overwritten when the new palette is stored.
+        Takes the lowest free id, or the id of the least recently used palette of any zone
+        when all are taken; its scene is overwritten when the new palette is stored.
         """
-        slots = self._slots.setdefault(str(group_id), {})
-        used = {slot["scene_id"] for slot in slots.values()}
+        used = {slot["scene_id"] for slots in self._slots.values() for slot in slots.values()}
         scene_id = next(
             (i for i in range(FIRST_SCENE_ID, LAST_SCENE_ID + 1) if i not in used), None
         )
         if scene_id is None:
-            scene_id = self.release(group_id, min(slots, key=lambda p: slots[p]["used"]))
-        slots[palette_id] = {"scene_id": scene_id, "used": 0}
+            zone, palette = min(
+                ((zone, palette) for zone, slots in self._slots.items() for palette in slots),
+                key=lambda key: self._slots[key[0]][key[1]]["used"],
+            )
+            scene_id = self.release(int(zone), palette)
+        self._slots.setdefault(str(group_id), {})[palette_id] = {"scene_id": scene_id, "used": 0}
         self._save()
         return scene_id
 
@@ -159,31 +167,28 @@ class SceneCache:
         return min(candidates, key=lambda p: slots[p]["used"], default=None)
 
     def touch(self, group_id: int, palette_id: str) -> None:
-        """Mark a palette's slot as the zone's most recently used one."""
-        slots = self._slots[str(group_id)]
-        slots[palette_id]["used"] = max(slot["used"] for slot in slots.values()) + 1
+        """Mark a palette's slot as the most recently used one."""
+        latest = max(slot["used"] for slots in self._slots.values() for slot in slots.values())
+        self._slots[str(group_id)][palette_id]["used"] = latest + 1
         self._save()
 
     def release(self, group_id: int, palette_id: str) -> int:
         """Drop a palette's slot and everything known about it; return its scene id."""
         scene_id = self._slots[str(group_id)].pop(palette_id)["scene_id"]
-        key = _scene_key(group_id, scene_id)
         for scenes in self._scenes.values():
-            scenes.pop(key, None)
+            scenes.pop(str(scene_id), None)
         self._save()
         return scene_id
 
-    def stored(self, ieee: str, group_id: int, scene_id: int) -> SceneContent | None:
+    def stored(self, ieee: str, scene_id: int) -> SceneContent | None:
         """Return what a lamp stores for a scene, None if unknown."""
-        if content := self._scenes.get(ieee, {}).get(_scene_key(group_id, scene_id)):
+        if content := self._scenes.get(ieee, {}).get(str(scene_id)):
             return SceneContent(*content)
         return None
 
-    def set_stored(
-        self, ieee: str, group_id: int, scene_id: int, content: SceneContent | None
-    ) -> None:
+    def set_stored(self, ieee: str, scene_id: int, content: SceneContent | None) -> None:
         """Record what a lamp stores for a scene; None marks it unknown."""
-        key = _scene_key(group_id, scene_id)
+        key = str(scene_id)
         if content is None:
             self._scenes.get(ieee, {}).pop(key, None)
         else:
@@ -196,10 +201,10 @@ class SceneCache:
             self._save()
 
     def forget_zone(self, group_id: int) -> None:
-        """Forget what the lamps store for a zone's scenes, so they are written again."""
-        prefix = f"{group_id}/"
+        """Forget what the lamps store for a zone's palettes, so they are written again."""
+        keys = {str(slot["scene_id"]) for slot in self._slots.get(str(group_id), {}).values()}
         for scenes in self._scenes.values():
-            for key in [key for key in scenes if key.startswith(prefix)]:
+            for key in keys & scenes.keys():
                 del scenes[key]
         self._save()
 
@@ -246,14 +251,14 @@ class SceneEngine:
             pending = [
                 (lamp, content)
                 for lamp, content in contents
-                if self._cache.stored(lamp.ieee, group_id, scene_id) != content
+                if self._cache.stored(lamp.ieee, scene_id) != content
             ]
             failed = await self._async_write(group_id, palette.palette_id, scene_id, pending, lamps)
             self._cache.touch(group_id, palette.palette_id)
             await self._transport.async_start_dynamic(
                 group_id,
                 dynamic_palette_payload(
-                    group_id,
+                    SCENE_GROUP,
                     scene_id,
                     [color.xy for color in palette.colors],
                     speed=speed,
@@ -274,14 +279,14 @@ class SceneEngine:
         """Add the scene to the pending lamps; return the lamps that failed."""
         statuses = list(
             await asyncio.gather(
-                *(self._async_add(lamp, group_id, scene_id, content) for lamp, content in pending)
+                *(self._async_add(lamp, scene_id, content) for lamp, content in pending)
             )
         )
         full = [i for i, status in enumerate(statuses) if status == STATUS_INSUFFICIENT_SPACE]
         if full and (victim := self._cache.least_recently_used(group_id, exclude=palette_id)):
             await self._async_evict(group_id, victim, lamps)
             retried = await asyncio.gather(
-                *(self._async_add(pending[i][0], group_id, scene_id, pending[i][1]) for i in full)
+                *(self._async_add(pending[i][0], scene_id, pending[i][1]) for i in full)
             )
             for i, status in zip(full, retried, strict=True):
                 statuses[i] = status
@@ -290,7 +295,7 @@ class SceneEngine:
         for (lamp, _), status in zip(pending, statuses, strict=True):
             if status != STATUS_SUCCESS:
                 _LOGGER.warning(
-                    "%s could not store scene 0x%02x of group 0x%04x (%s)",
+                    "%s could not store scene 0x%02x of zone 0x%04x (%s)",
                     lamp.entity_id,
                     scene_id,
                     group_id,
@@ -299,34 +304,30 @@ class SceneEngine:
                 failed.append(lamp)
         return failed
 
-    async def _async_add(
-        self, lamp: Lamp, group_id: int, scene_id: int, content: SceneContent
-    ) -> int | None:
+    async def _async_add(self, lamp: Lamp, scene_id: int, content: SceneContent) -> int | None:
         """Add the scene to one lamp; return the ZCL status, None without response."""
         try:
             status = await self._transport.async_scene_request(
                 lamp,
-                CMD_ADD_SCENE,
-                add_scene_payload(group_id, scene_id, content, SCENE_TRANSITION),
+                CMD_ENHANCED_ADD_SCENE,
+                add_scene_payload(SCENE_GROUP, scene_id, content, SCENE_TRANSITION),
             )
         except TransportError:
             status = None
-        self._cache.set_stored(
-            lamp.ieee, group_id, scene_id, content if status == STATUS_SUCCESS else None
-        )
+        self._cache.set_stored(lamp.ieee, scene_id, content if status == STATUS_SUCCESS else None)
         return status
 
     async def _async_evict(self, group_id: int, palette_id: str, lamps: Sequence[Lamp]) -> None:
         """Remove a palette's scene from the zone's lamps and free its slot."""
         scene_id = self._cache.release(group_id, palette_id)
-        _LOGGER.debug("Evicting scene 0x%02x of group 0x%04x", scene_id, group_id)
-        await asyncio.gather(*(self._async_remove(lamp, group_id, scene_id) for lamp in lamps))
+        _LOGGER.debug("Evicting scene 0x%02x of zone 0x%04x", scene_id, group_id)
+        await asyncio.gather(*(self._async_remove(lamp, scene_id) for lamp in lamps))
 
-    async def _async_remove(self, lamp: Lamp, group_id: int, scene_id: int) -> None:
+    async def _async_remove(self, lamp: Lamp, scene_id: int) -> None:
         """Remove a scene from one lamp; a lamp without the scene or response is fine."""
         with contextlib.suppress(TransportError):
             await self._transport.async_scene_request(
-                lamp, CMD_REMOVE_SCENE, remove_scene_payload(group_id, scene_id)
+                lamp, CMD_REMOVE_SCENE, remove_scene_payload(SCENE_GROUP, scene_id)
             )
 
 
@@ -344,8 +345,3 @@ def _target(
         brightness = action.brightness if action.brightness is not None else brightness
         mirek = action.mirek or mirek
     return LampTarget(xy=xy, brightness=brightness, mirek=mirek)
-
-
-def _scene_key(group_id: int, scene_id: int) -> str:
-    """Return the cache key of a scene."""
-    return f"{group_id}/{scene_id}"

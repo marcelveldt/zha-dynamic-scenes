@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -23,8 +24,13 @@ async def async_setup_entry(
     entry: DynamicScenesConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up a select entity per zone."""
+    """Set up a select entity per zone and remove those of deleted zones."""
     manager = entry.runtime_data
+    registry = er.async_get(hass)
+    zones = {_unique_id(group_id) for group_id in manager.zones}
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.unique_id not in zones:
+            registry.async_remove(entity.entity_id)
     async_add_entities(ZoneSceneSelect(hass, manager, zone) for zone in manager.zones.values())
 
 
@@ -47,7 +53,7 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         self._zone = zone
         self._palette_ids: dict[str, str] = {}
         self._attr_options = []
-        self._attr_unique_id = f"{zone.group_id:04x}"
+        self._attr_unique_id = _unique_id(zone.group_id)
         self.device_entry = async_entity_id_to_device(hass, zone.entity_id)
 
     async def async_added_to_hass(self) -> None:
@@ -127,3 +133,8 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
             translation_key="unknown_palette",
             translation_placeholders={"palette": palette},
         )
+
+
+def _unique_id(group_id: int) -> str:
+    """Return the unique id of a zone's select entity."""
+    return f"{group_id:04x}"

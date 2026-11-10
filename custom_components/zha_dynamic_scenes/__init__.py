@@ -33,9 +33,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DynamicScenesConfigEntry
         raise ConfigEntryNotReady(translation_domain=DOMAIN, translation_key="zha_not_ready")
     entry.runtime_data = await DynamicScenesManager.async_load(hass, entry)
     manager = entry.runtime_data
-    entry.async_on_unload(
-        async_listen_scene_losses(hass, manager.forget_lamp, manager.async_rewrite_zone)
-    )
+    entry.async_on_unload(async_listen_scene_losses(hass, manager.forget_lamp))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

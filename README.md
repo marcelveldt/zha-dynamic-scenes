@@ -50,27 +50,31 @@ Dependencies point inwards: `protocol` knows nothing else, `engine` only knows `
 
 ## Activating a palette
 
-1. `zigbee` resolves the zone's ZHA group to its lights and classifies each one: a Signify colour lamp with
+1. `zigbee` resolves the zone's ZHA group to its available lights and classifies each one: a Signify colour lamp with
    the Hue effects cluster (`0xFC03`) on its light endpoint animates (`dynamic`); other lights are colour,
    colour temperature or plain lights.
 2. `engine.assign_targets` gives every cluster a start state: the Hue scene action of one of its lamps if
    the palette has one, otherwise the next palette colour. The result only depends on the zone and the
    palette, so a lamp starts with the same colour every time.
 3. For the dynamic lamps, `SceneEngine` makes sure the palette's scene is stored: it gives the palette a
-   scene id in the zone and sends a unicast Add Scene (on, level, xy) only to lamps whose stored content is
-   unknown or different. Then it sends the dynamic palette command once to the group.
+   scene id and sends a unicast Enhanced Add Scene (on, level, xy) only to lamps whose stored content is
+   unknown or different. Then it sends the dynamic palette command once to the zone's group.
 4. The other lights get a plain `light.turn_on` with their start colour or the palette's colour
    temperature. A dynamic lamp that could not store the scene gets the same treatment.
 
 ## Scene slots and the cache
 
-Scenes are written lazily: a palette gets a scene id (`0x80`-`0xFE`, per zone) the first time it is started
-in that zone, and a lamp is written only when what it should store differs from what it is known to store.
-After the first start, starting a palette costs one groupcast and no flash writes in the lamps.
+Scenes are written lazily: a palette gets a scene id (`0x80`-`0xFE`) the first time it is started in a
+zone, and a lamp is written only when what it should store differs from what it is known to store. After
+the first start, starting a palette costs one groupcast and no flash writes in the lamps.
+
+Like the Hue bridge, the scenes are stored in group `0x0000`; the zone's group only addresses the
+groupcast. Scenes of a real group would be deleted when a lamp leaves that group or receives a Remove All
+Scenes for it. Since a lamp can be in several zones, scene ids are unique over all zones; when all are
+taken, the least recently used one is reused.
 
 The cache of slots and stored contents is kept in Home Assistant storage, next to the palette library. It
-is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp does) or was removed, and
-for a zone when its group loses a member (leaving a group deletes the member's scenes of that group). The
+is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp does) or was removed. The
 `rewrite_scenes` service clears a zone by hand, for scenes removed by other means.
 
 When a lamp's scene table is full, the zone's least recently used slot is removed from its lamps and the

@@ -7,11 +7,12 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
-from custom_components.zha_dynamic_scenes.const import DOMAIN
+from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_dynamic_scenes.zigbee import async_listen_scene_losses
 
 from .common import FakeTransport, lamp, palette
@@ -108,20 +109,28 @@ async def test_setup_retries_without_zha(hass: HomeAssistant, entry: MockConfigE
 
 async def test_scene_loss_signals(hass: HomeAssistant) -> None:
     lamps: list[str] = []
-    groups: list[int] = []
-    unsub = async_listen_scene_losses(hass, lamps.append, groups.append)
+    unsub = async_listen_scene_losses(hass, lamps.append)
     for message_type in ("device_joined", "device_removed", "device_fully_initialized"):
         async_dispatcher_send(
             hass,
             "zha_gateway_message",
             {"type": message_type, "device_info": {"ieee": lamp(1).ieee}},
         )
-    for message_type in ("group_member_removed", "group_member_added"):
-        async_dispatcher_send(
-            hass,
-            "zha_gateway_message",
-            {"type": message_type, "group_info": {"group_id": GROUP, "members": []}},
-        )
+    async_dispatcher_send(
+        hass,
+        "zha_gateway_message",
+        {"type": "group_member_removed", "group_info": {"group_id": GROUP, "members": []}},
+    )
     unsub()
     assert lamps == [lamp(1).ieee, lamp(1).ieee]
-    assert groups == [GROUP]
+
+
+async def test_deleted_zone_removes_its_entity(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    registry = er.async_get(hass)
+    assert registry.async_get(ENTITY_ID) is not None
+    hass.config_entries.async_update_entry(loaded, options={CONF_ZONES: []})
+    assert await hass.config_entries.async_reload(loaded.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get(ENTITY_ID) is None

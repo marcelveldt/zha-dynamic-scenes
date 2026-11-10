@@ -27,7 +27,7 @@ from .const import CONF_ZONES, DOMAIN, SIGNAL_LIBRARY_UPDATED, STORAGE_VERSION
 from .engine import LampTarget, SceneCache, SceneEngine, TransportError, assign_targets
 from .models import Lamp, LampKind, Palette, PaletteSource, ZoneConfig
 from .protocol import MAX_LEVEL, SceneContent
-from .zigbee import ZhaSceneTransport, async_zone_lamps
+from .zigbee import ZhaSceneTransport, async_group_member_ieees, async_zone_lamps
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class DynamicScenesManager:
             palettes = [self.palettes[p] for p in zone.palettes if p in self.palettes]
         else:
             try:
-                ieees = {lamp.ieee for lamp in async_zone_lamps(self.hass, zone.group_id)}
+                ieees = async_group_member_ieees(self.hass, zone.group_id)
             except HomeAssistantError as err:
                 _LOGGER.warning("Cannot match palettes to zone: %s", err)
                 ieees = set()
@@ -136,17 +136,30 @@ class DynamicScenesManager:
                 ) from err
         # lamps that could not store the scene still get their start colour
         static = [lamp for lamp in lamps if lamp.kind is not LampKind.DYNAMIC] + failed
-        await asyncio.gather(
+        results = await asyncio.gather(
             *(
                 self._async_turn_on(lamp, targets[lamp.ieee], brightness, transition, context)
                 for lamp in static
-            )
+            ),
+            return_exceptions=True,
         )
+        for lamp, result in zip(static, results, strict=True):
+            if isinstance(result, Exception):
+                _LOGGER.warning("Could not set %s to its start state: %s", lamp.entity_id, result)
 
     @callback
     def async_update_palettes(self, palettes: Iterable[Palette]) -> None:
-        """Add palettes to the library or replace those with the same id."""
-        self.palettes.update((palette.palette_id, palette) for palette in palettes)
+        """
+        Add palettes to the library or replace those with the same id.
+
+        A replaced palette keeps the start states of lamps the new one does not list: a
+        lamp that moved from the Hue bridge to ZHA is gone from a later bridge import.
+        """
+        for palette in palettes:
+            if old := self.palettes.get(palette.palette_id):
+                palette.actions = {**old.actions, **palette.actions}
+                palette.group_name = palette.group_name or old.group_name
+            self.palettes[palette.palette_id] = palette
         self._library_updated()
 
     @callback

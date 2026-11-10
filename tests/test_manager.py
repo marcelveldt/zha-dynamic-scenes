@@ -1,6 +1,7 @@
 """Activation of palettes on zones and the default palette choice."""
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
@@ -8,7 +9,7 @@ from custom_components.zha_dynamic_scenes.const import DOMAIN
 from custom_components.zha_dynamic_scenes.manager import DynamicScenesManager, default_palettes
 from custom_components.zha_dynamic_scenes.models import LightAction, PaletteSource
 from custom_components.zha_dynamic_scenes.protocol import (
-    CMD_ADD_SCENE,
+    CMD_ENHANCED_ADD_SCENE,
     SceneContent,
     add_scene_payload,
     dynamic_palette_payload,
@@ -33,20 +34,20 @@ async def test_activate_mixed_zone(
         [
             (
                 lamp(1).ieee,
-                CMD_ADD_SCENE,
-                add_scene_payload(GROUP, 0x80, SceneContent.from_xy(RED.xy, 80.0), 4),
+                CMD_ENHANCED_ADD_SCENE,
+                add_scene_payload(0, 0x80, SceneContent.from_xy(RED.xy, 80.0), 4),
             ),
             (
                 lamp(2).ieee,
-                CMD_ADD_SCENE,
-                add_scene_payload(GROUP, 0x80, SceneContent.from_xy(GREEN.xy, 70.0), 4),
+                CMD_ENHANCED_ADD_SCENE,
+                add_scene_payload(0, 0x80, SceneContent.from_xy(GREEN.xy, 70.0), 4),
             ),
         ]
     )
     assert transport.groupcasts == [
         (
             GROUP,
-            dynamic_palette_payload(GROUP, 0x80, [RED.xy, GREEN.xy, BLUE.xy], speed=0.5),
+            dynamic_palette_payload(0, 0x80, [RED.xy, GREEN.xy, BLUE.xy], speed=0.5),
         )
     ]
     assert sorted((call.data for call in calls), key=lambda d: d["entity_id"]) == [
@@ -70,7 +71,7 @@ async def test_activate_overrides_and_failed_lamp_fallback(
         (
             GROUP,
             dynamic_palette_payload(
-                GROUP,
+                0,
                 0x80,
                 [RED.xy, GREEN.xy, BLUE.xy],
                 speed=1,
@@ -87,6 +88,47 @@ async def test_activate_overrides_and_failed_lamp_fallback(
         "transition": 1.5,
     }
     assert len(calls) == 3
+
+
+@pytest.mark.usefixtures("zha")
+async def test_failing_light_does_not_stop_the_activation(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    transport: FakeTransport,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager.async_update_palettes([palette()])
+
+    async def turn_on(call: ServiceCall) -> None:
+        if call.data["entity_id"] == "light.lamp_03":
+            raise HomeAssistantError("unreachable")
+
+    hass.services.async_register("light", "turn_on", turn_on)
+    await manager.async_activate(GROUP, "custom:a")
+    assert len(transport.groupcasts) == 1
+    assert "Could not set light.lamp_03 to its start state: unreachable" in caplog.text
+
+
+@pytest.mark.usefixtures("zha")
+async def test_reimport_keeps_actions_of_lamps_the_bridge_lost(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    manager = await DynamicScenesManager.async_load(hass, entry)
+    moved, kept = LightAction(xy=(0.1, 0.2)), LightAction(xy=(0.5, 0.4))
+    manager.async_update_palettes(
+        [
+            palette(
+                "hue:a",
+                group_name="Room",
+                actions={lamp(1).ieee: moved, lamp(2).ieee: LightAction(xy=(0.3, 0.4))},
+            )
+        ]
+    )
+    manager.async_update_palettes([palette("hue:a", actions={lamp(2).ieee: kept})])
+    merged = manager.palettes["hue:a"]
+    assert merged.actions == {lamp(1).ieee: moved, lamp(2).ieee: kept}
+    assert merged.group_name == "Room"
 
 
 @pytest.mark.usefixtures("zha")

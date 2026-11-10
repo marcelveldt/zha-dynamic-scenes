@@ -37,6 +37,10 @@ def zha(hass: HomeAssistant, lamps: list[Lamp], transport: FakeTransport) -> Gen
         patch(f"{INTEGRATION}.config_flow.async_zha_ready", return_value=True),
         patch(f"{INTEGRATION}.manager.ZhaSceneTransport", return_value=transport),
         patch(f"{INTEGRATION}.manager.async_zone_lamps", return_value=lamps),
+        patch(
+            f"{INTEGRATION}.manager.async_group_member_ieees",
+            return_value={lamp.ieee for lamp in lamps},
+        ),
         patch(f"{INTEGRATION}.config_flow.async_zone_lamps", return_value=lamps),
         patch(
             f"{INTEGRATION}.config_flow.async_group_lights",

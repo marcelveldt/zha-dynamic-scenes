@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 import pytest
-from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry, get_schema_suggested_value
 
 from custom_components.zha_dynamic_scenes.const import (
     CONF_HUE_APP_KEY,
@@ -81,6 +81,19 @@ async def test_custom_palette_add_edit_delete(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     edited = manager.palettes[created.palette_id]
     assert (edited.name, len(edited.colors), edited.speed) == ("Renamed", 3, 1)
+
+    # saving the colours as shown keeps them exactly; hex RGB would shift them
+    result = await _menu(hass, empty_entry, "edit_palette")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"palette": created.palette_id}
+    )
+    shown = get_schema_suggested_value(result["data_schema"].schema, "colors")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "Renamed", "colors": shown, "speed": 0.5, "brightness": 20}
+    )
+    assert [c.xy for c in manager.palettes[created.palette_id].colors] == [
+        c.xy for c in edited.colors
+    ]
 
     result = await _menu(hass, empty_entry, "edit_palette")
     result = await hass.config_entries.options.async_configure(

@@ -19,8 +19,6 @@ from zha.application.const import (
     ZHA_GW_MSG_DEVICE_INFO,
     ZHA_GW_MSG_DEVICE_JOINED,
     ZHA_GW_MSG_DEVICE_REMOVED,
-    ZHA_GW_MSG_GROUP_INFO,
-    ZHA_GW_MSG_GROUP_MEMBER_REMOVED,
 )
 from zha.application.platforms.light import BaseLight
 from zha.application.platforms.light.const import ColorMode
@@ -39,7 +37,7 @@ from .protocol import (
 )
 
 if TYPE_CHECKING:
-    from zha.zigbee.group import GroupMember
+    from zha.zigbee.group import Group, GroupMember
 
 # manufacturer names of Signify lamps, as ZHA matches them for its Hue light
 SIGNIFY_MANUFACTURERS = frozenset({"Philips", "Signify Netherlands B.V."})
@@ -117,21 +115,27 @@ def async_group_lights(hass: HomeAssistant) -> dict[str, int]:
 
 
 @callback
+def async_group_member_ieees(hass: HomeAssistant, group_id: int) -> set[str]:
+    """
+    Return the IEEE addresses of the devices in a ZHA group.
+
+    :raises HomeAssistantError: ZHA is not loaded or the group does not exist.
+    """
+    return {str(member.device.ieee) for member in _group(_gateway_proxy(hass), group_id).members}
+
+
+@callback
 def async_zone_lamps(hass: HomeAssistant, group_id: int) -> list[Lamp]:
     """
-    Return the lights in a ZHA group.
+    Return the available lights in a ZHA group.
 
     :raises HomeAssistantError: ZHA is not loaded or the group does not exist.
     """
     proxy = _gateway_proxy(hass)
-    if (group := proxy.gateway.groups.get(group_id)) is None:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="group_not_found",
-            translation_placeholders={"group": f"0x{group_id:04x}"},
-        )
     lamps = []
-    for member in group.members:
+    for member in _group(proxy, group_id).members:
+        if not member.device.available:
+            continue
         light = next((e for e in member.associated_entities if isinstance(e, BaseLight)), None)
         if light is None:
             continue
@@ -161,26 +165,20 @@ def async_group_name(hass: HomeAssistant, group_id: int) -> str | None:
 
 @callback
 def async_listen_scene_losses(
-    hass: HomeAssistant,
-    forget_lamp: Callable[[str], None],
-    forget_group: Callable[[int], None],
+    hass: HomeAssistant, forget_lamp: Callable[[str], None]
 ) -> CALLBACK_TYPE:
     """
-    Report ZHA events after which lamps may have lost stored scenes.
+    Report devices that may have lost their stored scenes.
 
     :param forget_lamp: Called with the IEEE of a device that joined with a new address
         (a reset lamp gets one) or was removed from ZHA. A power cycle keeps the address
         and the scenes.
-    :param forget_group: Called with the id of a group that lost a member: a lamp that
-        leaves a group deletes its scenes of that group.
     """
 
     @callback
     def _handle(message: dict[str, Any]) -> None:
         if message[ATTR_TYPE] in (ZHA_GW_MSG_DEVICE_JOINED, ZHA_GW_MSG_DEVICE_REMOVED):
             forget_lamp(message[ZHA_GW_MSG_DEVICE_INFO][ATTR_IEEE])
-        elif message[ATTR_TYPE] == ZHA_GW_MSG_GROUP_MEMBER_REMOVED:
-            forget_group(message[ZHA_GW_MSG_GROUP_INFO]["group_id"])
 
     return async_dispatcher_connect(hass, ZHA_GW_MSG, _handle)
 
@@ -193,6 +191,17 @@ def _gateway_proxy(hass: HomeAssistant) -> ZHAGatewayProxy:
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="zha_not_ready"
         ) from err
+
+
+def _group(proxy: ZHAGatewayProxy, group_id: int) -> Group:
+    """Return a ZHA group."""
+    if (group := proxy.gateway.groups.get(group_id)) is None:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="group_not_found",
+            translation_placeholders={"group": f"0x{group_id:04x}"},
+        )
+    return group
 
 
 def _lamp_kind(member: GroupMember, light: BaseLight) -> LampKind:

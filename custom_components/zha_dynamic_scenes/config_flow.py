@@ -425,7 +425,11 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
                 self._manager.async_remove_palettes([palette.palette_id])
                 return self._async_save()
             try:
-                colors = _parse_colors(user_input[CONF_COLORS])
+                if palette is not None and user_input[CONF_COLORS] == _colors_text(palette):
+                    # hex RGB is lossy: unchanged text keeps the exact colours
+                    colors = [color.xy for color in palette.colors]
+                else:
+                    colors = _parse_colors(user_input[CONF_COLORS])
             except ValueError:
                 errors[CONF_COLORS] = "invalid_colors"
             else:
@@ -452,7 +456,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
             schema = schema.extend({probatio.Optional(CONF_DELETE): BooleanSelector()})
             values = {
                 CONF_NAME: palette.name,
-                CONF_COLORS: ", ".join(_hex(color) for color in palette.colors),
+                CONF_COLORS: _colors_text(palette),
                 CONF_SPEED: palette.speed,
                 CONF_BRIGHTNESS: palette.colors[0].brightness,
             }
@@ -508,6 +512,11 @@ def _parse_colors(text: str) -> list[tuple[float, float]]:
     return [
         color_RGB_to_xy(*bytes.fromhex(match.group(1))) for match in matches if match is not None
     ]
+
+
+def _colors_text(palette: Palette) -> str:
+    """Return the colours of a palette as the hex RGB list shown in the form."""
+    return ", ".join(_hex(color) for color in palette.colors)
 
 
 def _hex(color: PaletteColor) -> str:
