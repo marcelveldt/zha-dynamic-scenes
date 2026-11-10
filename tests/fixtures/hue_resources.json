@@ -1,0 +1,86 @@
+{
+  "errors": [],
+  "data": [
+    {"id": "zc-1", "type": "zigbee_connectivity", "owner": {"rid": "dev-1", "rtype": "device"}, "status": "connected", "mac_address": "00:17:88:01:00:00:00:01"},
+    {"id": "zc-2", "type": "zigbee_connectivity", "owner": {"rid": "dev-2", "rtype": "device"}, "status": "connected", "mac_address": "00:17:88:01:00:00:00:02"},
+    {"id": "zc-3", "type": "zigbee_connectivity", "owner": {"rid": "dev-3", "rtype": "device"}, "status": "connected", "mac_address": "00:17:88:01:00:00:00:03"},
+    {"id": "dev-1", "type": "device", "services": [{"rid": "light-1", "rtype": "light"}, {"rid": "zc-1", "rtype": "zigbee_connectivity"}]},
+    {"id": "dev-2", "type": "device", "services": [{"rid": "light-2", "rtype": "light"}, {"rid": "zc-2", "rtype": "zigbee_connectivity"}]},
+    {"id": "dev-3", "type": "device", "services": [{"rid": "light-3", "rtype": "light"}, {"rid": "zc-3", "rtype": "zigbee_connectivity"}]},
+    {"id": "dev-4", "type": "device", "services": [{"rid": "light-4", "rtype": "light"}]},
+    {"id": "light-1", "type": "light", "owner": {"rid": "dev-1", "rtype": "device"}},
+    {"id": "light-2", "type": "light", "owner": {"rid": "dev-2", "rtype": "device"}},
+    {"id": "light-3", "type": "light", "owner": {"rid": "dev-3", "rtype": "device"}},
+    {"id": "light-4", "type": "light", "owner": {"rid": "dev-4", "rtype": "device"}},
+    {"id": "room-1", "type": "room", "metadata": {"name": "Living room"}, "children": [{"rid": "dev-1", "rtype": "device"}, {"rid": "dev-2", "rtype": "device"}]},
+    {"id": "zone-1", "type": "zone", "metadata": {"name": "Ambience"}, "children": [{"rid": "light-2", "rtype": "light"}, {"rid": "light-3", "rtype": "light"}, {"rid": "light-4", "rtype": "light"}]},
+    {
+      "id": "scene-dynamic",
+      "type": "scene",
+      "metadata": {"name": "Sunset"},
+      "group": {"rid": "zone-1", "rtype": "zone"},
+      "speed": 0.6269841,
+      "actions": [
+        {"target": {"rid": "light-2", "rtype": "light"}, "action": {"on": {"on": true}, "dimming": {"brightness": 40.0}, "color": {"xy": {"x": 0.5, "y": 0.4}}}},
+        {"target": {"rid": "light-3", "rtype": "light"}, "action": {"on": {"on": true}, "dimming": {"brightness": 60.0}, "color_temperature": {"mirek": 366}}},
+        {"target": {"rid": "light-4", "rtype": "light"}, "action": {"on": {"on": true}, "dimming": {"brightness": 50.0}, "color": {"xy": {"x": 0.3, "y": 0.3}}}}
+      ],
+      "palette": {
+        "color": [
+          {"color": {"xy": {"x": 0.6, "y": 0.35}}, "dimming": {"brightness": 80.0}},
+          {"color": {"xy": {"x": 0.5, "y": 0.41}}, "dimming": {"brightness": 80.0}},
+          {"color": {"xy": {"x": 0.45, "y": 0.4}}, "dimming": {"brightness": 75.0}}
+        ],
+        "dimming": [],
+        "color_temperature": [{"color_temperature": {"mirek": 400}, "dimming": {"brightness": 80.0}}],
+        "effects": [],
+        "effects_v2": []
+      }
+    },
+    {
+      "id": "scene-gradient",
+      "type": "scene",
+      "metadata": {"name": "Aurora"},
+      "group": {"rid": "room-1", "rtype": "room"},
+      "speed": 0.5,
+      "actions": [
+        {"target": {"rid": "light-1", "rtype": "light"}, "action": {"on": {"on": true}, "dimming": {"brightness": 90.0}, "gradient": {"points": [{"color": {"xy": {"x": 0.2, "y": 0.5}}}, {"color": {"xy": {"x": 0.3, "y": 0.2}}}]}}},
+        {"target": {"rid": "light-2", "rtype": "light"}, "action": {"on": {"on": true}}}
+      ],
+      "palette": {
+        "color": [
+          {"color": {"xy": {"x": 0.2, "y": 0.5}}, "dimming": {"brightness": 100.0}},
+          {"color": {"xy": {"x": 0.3, "y": 0.2}}, "dimming": {"brightness": 100.0}}
+        ],
+        "dimming": [],
+        "color_temperature": [],
+        "effects": [],
+        "effects_v2": []
+      }
+    },
+    {
+      "id": "scene-single",
+      "type": "scene",
+      "metadata": {"name": "Rest"},
+      "group": {"rid": "room-1", "rtype": "room"},
+      "speed": 0.6,
+      "actions": [],
+      "palette": {
+        "color": [{"color": {"xy": {"x": 0.56, "y": 0.4}}, "dimming": {"brightness": 35.0}}],
+        "dimming": [],
+        "color_temperature": [{"color_temperature": {"mirek": 500}, "dimming": {"brightness": 93.0}}],
+        "effects": [],
+        "effects_v2": []
+      }
+    },
+    {
+      "id": "scene-static",
+      "type": "scene",
+      "metadata": {"name": "Bright"},
+      "group": {"rid": "room-1", "rtype": "room"},
+      "speed": 0.0,
+      "actions": [],
+      "palette": {"color": [], "dimming": [], "color_temperature": [], "effects": [], "effects_v2": []}
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+[project]
+name = "zha-dynamic-scenes"
+version = "0.1.0"
+description = "Hue dynamic scenes on Hue lamps paired to ZHA"
+readme = "README.md"
+requires-python = ">=3.14.2"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "ARG001",  # Home Assistant fixes the signatures of setup functions and flow steps
+  "ARG002",
+  "ARG004",
+  "COM812",  # conflicts with the formatter
+  "CPY001",
+  "D203",    # no blank line before the class docstring (D211)
+  "D212",    # multi-line docstring summary starts on the second line (D213)
+  "FBT001",  # boolean positional arguments in Home Assistant callbacks
+  "FBT002",
+  "S101",    # asserts narrow types, as in Home Assistant
+  "TC001",   # Home Assistant imports types at runtime
+  "TC002",
+  "TC003",
+  "TRY003",
+  "EM101",
+  "EM102",
+  "PLR0913",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "D", "PLR0917", "PLR2004", "SLF001"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components.zha_dynamic_scenes"]
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+packages = ["custom_components.zha_dynamic_scenes"]
+
+[[tool.mypy.overrides]]
+module = ["zha.*"]
+follow_untyped_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Let Home Assistant install its httpx alias before respx is imported.
+addopts = "-p no:respx"
+pythonpath = ["."]
+testpaths = ["tests"]

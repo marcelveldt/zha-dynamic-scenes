@@ -1,0 +1,17 @@
+{
+  "entity": {
+    "select": {
+      "dynamic_scene": {
+        "default": "mdi:palette"
+      }
+    }
+  },
+  "services": {
+    "activate": {
+      "service": "mdi:play"
+    },
+    "rewrite_scenes": {
+      "service": "mdi:database-refresh"
+    }
+  }
+}

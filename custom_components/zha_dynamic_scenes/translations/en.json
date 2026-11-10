@@ -1,0 +1,188 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Play Hue dynamic scenes on Hue lamps paired to ZHA. Zones and palettes are set up in the options afterwards."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single configuration possible.",
+      "zha_not_ready": "ZHA is not running. Set up ZHA first."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "import_hue": "Import palettes from a Hue bridge",
+          "add_palette": "Add a custom palette",
+          "edit_palette": "Edit a custom palette",
+          "remove_palettes": "Remove palettes",
+          "add_zone": "Add a zone",
+          "edit_zone": "Edit a zone"
+        }
+      },
+      "import_hue": {
+        "title": "Import from a Hue bridge",
+        "description": "Reads the dynamic scenes of the bridge. Nothing is changed on the bridge. Import before moving lamps to ZHA: the per-lamp start colours come along.",
+        "data": {
+          "hue_host": "Host",
+          "hue_app_key": "Application key"
+        },
+        "data_description": {
+          "hue_host": "Host name or IP address of the bridge.",
+          "hue_app_key": "A CLIP v2 application key of the bridge, for example the one the Hue integration uses."
+        }
+      },
+      "import_done": {
+        "title": "Import finished",
+        "description": "Imported or updated {count} palettes."
+      },
+      "add_palette": {
+        "title": "Add a custom palette",
+        "data": {
+          "name": "Name",
+          "colors": "Colours",
+          "speed": "Speed",
+          "brightness": "Brightness"
+        },
+        "data_description": {
+          "colors": "2 to 9 colours as hex RGB, separated by commas, for example #ff8800, #ffd000, #00a0ff.",
+          "speed": "How fast the lamps move through the colours. Hue scenes use about 0.63."
+        }
+      },
+      "edit_palette": {
+        "title": "Edit a custom palette",
+        "data": {
+          "palette": "Palette"
+        }
+      },
+      "palette": {
+        "title": "Edit a custom palette",
+        "data": {
+          "name": "Name",
+          "colors": "Colours",
+          "speed": "Speed",
+          "brightness": "Brightness",
+          "delete": "Delete this palette"
+        },
+        "data_description": {
+          "colors": "2 to 9 colours as hex RGB, separated by commas, for example #ff8800, #ffd000, #00a0ff.",
+          "speed": "How fast the lamps move through the colours. Hue scenes use about 0.63."
+        }
+      },
+      "remove_palettes": {
+        "title": "Remove palettes",
+        "data": {
+          "palettes": "Palettes"
+        }
+      },
+      "add_zone": {
+        "title": "Add a zone",
+        "description": "A zone is a ZHA group. Its lamps start a palette together.",
+        "data": {
+          "group": "ZHA group"
+        }
+      },
+      "edit_zone": {
+        "title": "Edit a zone",
+        "data": {
+          "zone": "Zone"
+        }
+      },
+      "zone": {
+        "title": "Zone {zone}",
+        "description": "Clusters (lamps that start with the same colour):\n{clusters}",
+        "menu_options": {
+          "zone_palettes": "Choose the palettes",
+          "add_cluster": "Add a cluster",
+          "remove_clusters": "Remove clusters",
+          "delete_zone": "Delete this zone",
+          "save": "Save"
+        }
+      },
+      "zone_palettes": {
+        "title": "Palettes of the zone",
+        "data": {
+          "automatic": "Choose automatically",
+          "palettes": "Palettes"
+        },
+        "data_description": {
+          "automatic": "Offer the imported palettes of the Hue room or zone with the same lamps, and all custom palettes."
+        }
+      },
+      "add_cluster": {
+        "title": "Add a cluster",
+        "description": "Lamps in a cluster start with the same colour and stay in sync, for example a pair of lamps on both sides of a door.",
+        "data": {
+          "lights": "Lights"
+        }
+      },
+      "remove_clusters": {
+        "title": "Remove clusters",
+        "data": {
+          "clusters": "Clusters"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot read the Hue bridge.",
+      "invalid_auth": "The bridge rejected the application key.",
+      "invalid_colors": "Enter 2 to 9 colours as hex RGB, for example #ff8800.",
+      "cluster_too_small": "A cluster needs at least two lights."
+    },
+    "abort": {
+      "not_loaded": "The integration is not running.",
+      "no_groups": "There are no ZHA groups with lights left to add."
+    }
+  },
+  "entity": {
+    "select": {
+      "dynamic_scene": {
+        "name": "Dynamic scene"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_ready": {
+      "message": "ZHA is not running."
+    },
+    "group_not_found": {
+      "message": "ZHA group {group} does not exist."
+    },
+    "send_failed": {
+      "message": "Could not start the dynamic scene: {error}"
+    },
+    "unknown_palette": {
+      "message": "Unknown palette: {palette}"
+    }
+  },
+  "services": {
+    "activate": {
+      "name": "Activate",
+      "description": "Starts a palette on a zone.",
+      "fields": {
+        "palette": {
+          "name": "Palette",
+          "description": "Name of a palette of the zone, as shown in its select entity."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "Animation speed from 0 to 1 instead of the palette's."
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "Brightness from 1 to 255 for all lamps instead of the palette's."
+        },
+        "transition": {
+          "name": "Transition",
+          "description": "Duration of the transition to the start colours."
+        }
+      }
+    },
+    "rewrite_scenes": {
+      "name": "Rewrite scenes",
+      "description": "Writes the zone's palettes to the lamps again, each on its next activation. Use it when scenes were removed from the lamps by other means."
+    }
+  }
+}

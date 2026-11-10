@@ -1,0 +1,14 @@
+{
+  "domain": "zha_dynamic_scenes",
+  "name": "ZHA dynamic scenes",
+  "codeowners": ["@marcelveldt"],
+  "config_flow": true,
+  "dependencies": ["zha"],
+  "documentation": "https://github.com/marcelveldt/zha-dynamic-scenes",
+  "integration_type": "service",
+  "iot_class": "assumed_state",
+  "issue_tracker": "https://github.com/marcelveldt/zha-dynamic-scenes/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

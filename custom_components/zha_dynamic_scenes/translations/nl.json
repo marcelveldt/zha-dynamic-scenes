@@ -1,0 +1,188 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Speel Hue dynamische scènes af op Hue-lampen die aan ZHA gekoppeld zijn. Zones en paletten stel je daarna in bij de opties."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Al geconfigureerd. Slechts één configuratie mogelijk.",
+      "zha_not_ready": "ZHA draait niet. Stel eerst ZHA in."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "import_hue": "Paletten importeren van een Hue-bridge",
+          "add_palette": "Eigen palet toevoegen",
+          "edit_palette": "Eigen palet bewerken",
+          "remove_palettes": "Paletten verwijderen",
+          "add_zone": "Zone toevoegen",
+          "edit_zone": "Zone bewerken"
+        }
+      },
+      "import_hue": {
+        "title": "Importeren van een Hue-bridge",
+        "description": "Leest de dynamische scènes van de bridge. Er wordt niets op de bridge gewijzigd. Importeer voordat je lampen naar ZHA verhuist: de startkleuren per lamp komen dan mee.",
+        "data": {
+          "hue_host": "Host",
+          "hue_app_key": "Applicatiesleutel"
+        },
+        "data_description": {
+          "hue_host": "Hostnaam of IP-adres van de bridge.",
+          "hue_app_key": "Een CLIP v2-applicatiesleutel van de bridge, bijvoorbeeld die van de Hue-integratie."
+        }
+      },
+      "import_done": {
+        "title": "Import klaar",
+        "description": "{count} paletten geïmporteerd of bijgewerkt."
+      },
+      "add_palette": {
+        "title": "Eigen palet toevoegen",
+        "data": {
+          "name": "Naam",
+          "colors": "Kleuren",
+          "speed": "Snelheid",
+          "brightness": "Helderheid"
+        },
+        "data_description": {
+          "colors": "2 tot 9 kleuren als hex RGB, gescheiden door komma's, bijvoorbeeld #ff8800, #ffd000, #00a0ff.",
+          "speed": "Hoe snel de lampen door de kleuren gaan. Hue-scènes gebruiken ongeveer 0,63."
+        }
+      },
+      "edit_palette": {
+        "title": "Eigen palet bewerken",
+        "data": {
+          "palette": "Palet"
+        }
+      },
+      "palette": {
+        "title": "Eigen palet bewerken",
+        "data": {
+          "name": "Naam",
+          "colors": "Kleuren",
+          "speed": "Snelheid",
+          "brightness": "Helderheid",
+          "delete": "Dit palet verwijderen"
+        },
+        "data_description": {
+          "colors": "2 tot 9 kleuren als hex RGB, gescheiden door komma's, bijvoorbeeld #ff8800, #ffd000, #00a0ff.",
+          "speed": "Hoe snel de lampen door de kleuren gaan. Hue-scènes gebruiken ongeveer 0,63."
+        }
+      },
+      "remove_palettes": {
+        "title": "Paletten verwijderen",
+        "data": {
+          "palettes": "Paletten"
+        }
+      },
+      "add_zone": {
+        "title": "Zone toevoegen",
+        "description": "Een zone is een ZHA-groep. De lampen ervan starten een palet samen.",
+        "data": {
+          "group": "ZHA-groep"
+        }
+      },
+      "edit_zone": {
+        "title": "Zone bewerken",
+        "data": {
+          "zone": "Zone"
+        }
+      },
+      "zone": {
+        "title": "Zone {zone}",
+        "description": "Clusters (lampen die met dezelfde kleur starten):\n{clusters}",
+        "menu_options": {
+          "zone_palettes": "Paletten kiezen",
+          "add_cluster": "Cluster toevoegen",
+          "remove_clusters": "Clusters verwijderen",
+          "delete_zone": "Deze zone verwijderen",
+          "save": "Opslaan"
+        }
+      },
+      "zone_palettes": {
+        "title": "Paletten van de zone",
+        "data": {
+          "automatic": "Automatisch kiezen",
+          "palettes": "Paletten"
+        },
+        "data_description": {
+          "automatic": "Biedt de geïmporteerde paletten van de Hue-ruimte of -zone met dezelfde lampen aan, en alle eigen paletten."
+        }
+      },
+      "add_cluster": {
+        "title": "Cluster toevoegen",
+        "description": "Lampen in een cluster starten met dezelfde kleur en blijven synchroon, bijvoorbeeld een paar lampen aan weerszijden van een deur.",
+        "data": {
+          "lights": "Lampen"
+        }
+      },
+      "remove_clusters": {
+        "title": "Clusters verwijderen",
+        "data": {
+          "clusters": "Clusters"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "De Hue-bridge kan niet worden gelezen.",
+      "invalid_auth": "De bridge weigert de applicatiesleutel.",
+      "invalid_colors": "Geef 2 tot 9 kleuren op als hex RGB, bijvoorbeeld #ff8800.",
+      "cluster_too_small": "Een cluster heeft minstens twee lampen nodig."
+    },
+    "abort": {
+      "not_loaded": "De integratie draait niet.",
+      "no_groups": "Er zijn geen ZHA-groepen met lampen meer om toe te voegen."
+    }
+  },
+  "entity": {
+    "select": {
+      "dynamic_scene": {
+        "name": "Dynamische scène"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_ready": {
+      "message": "ZHA draait niet."
+    },
+    "group_not_found": {
+      "message": "ZHA-groep {group} bestaat niet."
+    },
+    "send_failed": {
+      "message": "De dynamische scène kon niet worden gestart: {error}"
+    },
+    "unknown_palette": {
+      "message": "Onbekend palet: {palette}"
+    }
+  },
+  "services": {
+    "activate": {
+      "name": "Activeren",
+      "description": "Start een palet op een zone.",
+      "fields": {
+        "palette": {
+          "name": "Palet",
+          "description": "Naam van een palet van de zone, zoals in de select-entiteit."
+        },
+        "speed": {
+          "name": "Snelheid",
+          "description": "Animatiesnelheid van 0 tot 1 in plaats van die van het palet."
+        },
+        "brightness": {
+          "name": "Helderheid",
+          "description": "Helderheid van 1 tot 255 voor alle lampen in plaats van die van het palet."
+        },
+        "transition": {
+          "name": "Overgang",
+          "description": "Duur van de overgang naar de startkleuren."
+        }
+      }
+    },
+    "rewrite_scenes": {
+      "name": "Scènes opnieuw schrijven",
+      "description": "Schrijft de paletten van de zone opnieuw naar de lampen, elk bij de volgende activering. Gebruik dit als scènes op een andere manier uit de lampen zijn verwijderd."
+    }
+  }
+}
