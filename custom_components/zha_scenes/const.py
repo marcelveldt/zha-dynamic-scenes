@@ -1,15 +1,13 @@
-"""Constants for ZHA dynamic scenes."""
+"""Constants for ZHA Scenes."""
 
 from typing import Final
 
 from homeassistant.core import Context
 from homeassistant.util.signal_type import SignalTypeFormat
 
-DOMAIN: Final = "zha_dynamic_scenes"
+DOMAIN: Final = "zha_scenes"
 
 CONF_ZONES: Final = "zones"
-CONF_HUE_HOST: Final = "hue_host"
-CONF_HUE_APP_KEY: Final = "hue_app_key"
 
 ATTR_SPEED: Final = "speed"
 

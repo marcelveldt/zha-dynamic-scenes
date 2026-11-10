@@ -1,5 +1,5 @@
 [project]
-name = "zha-dynamic-scenes"
+name = "zha-scenes"
 version = "0.1.0"
 description = "Hue dynamic scenes on Hue lamps paired to ZHA"
 readme = "README.md"
@@ -39,14 +39,14 @@ fixture-parentheses = false
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
-known-first-party = ["custom_components.zha_dynamic_scenes"]
+known-first-party = ["custom_components.zha_scenes"]
 combine-as-imports = true
 
 [tool.mypy]
 python_version = "3.14"
 strict = true
 warn_unreachable = true
-packages = ["custom_components.zha_dynamic_scenes"]
+packages = ["custom_components.zha_scenes"]
 
 [[tool.mypy.overrides]]
 module = ["zha.*"]

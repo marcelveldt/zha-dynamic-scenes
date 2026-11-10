@@ -1,4 +1,4 @@
-"""Services of ZHA dynamic scenes."""
+"""Services of ZHA Scenes."""
 
 from __future__ import annotations
 

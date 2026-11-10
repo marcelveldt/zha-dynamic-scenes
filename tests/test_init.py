@@ -10,8 +10,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
-from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_dynamic_scenes.zigbee import async_listen_scene_losses
+from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
+from custom_components.zha_scenes.zigbee import async_listen_scene_losses
 
 from .common import FakeTransport, lamp
 from .conftest import GROUP, INTEGRATION

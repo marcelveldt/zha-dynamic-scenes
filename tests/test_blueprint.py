@@ -15,7 +15,7 @@ import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 from zhaquirks.philips.rdm002 import PhilipsRDM002
 
-PATH = "zha_dynamic_scenes/tap_dial.yaml"
+PATH = "zha_scenes/tap_dial.yaml"
 BLUEPRINT = Path(__file__).parents[1] / "blueprints" / "automation" / PATH
 IEEE = "00:17:88:01:0b:00:00:01"
 # the triggers ZHA offers for the Tap Dial
@@ -81,7 +81,7 @@ async def test_button_press(
     button: str,
     call: tuple[str, dict[str, Any]],
 ) -> None:
-    activate = async_mock_service(hass, "zha_dynamic_scenes", "activate")
+    activate = async_mock_service(hass, "zha_scenes", "activate")
     assert await async_setup_component(
         hass, "automation", {"automation": _automation(tap_dial, transition)}
     )
@@ -117,7 +117,7 @@ async def test_quick_taps(
     calls: list[tuple[str, dict[str, Any]]],
 ) -> None:
     """Quick taps arrive as one multi-press event that starts the button's palette once."""
-    activate = async_mock_service(hass, "zha_dynamic_scenes", "activate")
+    activate = async_mock_service(hass, "zha_scenes", "activate")
     assert await async_setup_component(hass, "automation", {"automation": _automation(tap_dial)})
 
     hass.bus.async_fire("zha_event", {"device_ieee": IEEE, **TRIGGERS[(press, button)]})

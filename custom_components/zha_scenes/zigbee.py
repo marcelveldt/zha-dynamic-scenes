@@ -177,21 +177,6 @@ def async_device_lights(hass: HomeAssistant) -> dict[str, str]:
 
 
 @callback
-def async_zone_ieees(hass: HomeAssistant, zone: ZoneConfig) -> set[str]:
-    """
-    Return the IEEE addresses of the devices in a zone, available or not.
-
-    :raises HomeAssistantError: ZHA is not loaded or the zone's group does not exist.
-    """
-    if zone.ieee is not None:
-        return {zone.ieee}
-    assert zone.group_id is not None
-    return {
-        str(member.device.ieee) for member in _group(_gateway_proxy(hass), zone.group_id).members
-    }
-
-
-@callback
 def async_zone_lamps(hass: HomeAssistant, zone: ZoneConfig) -> list[Lamp]:
     """
     Return the available lights of a zone.

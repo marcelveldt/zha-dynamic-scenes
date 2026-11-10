@@ -1,4 +1,4 @@
-"""Fixtures for ZHA dynamic scenes."""
+"""Fixtures for ZHA Scenes."""
 
 from collections.abc import Generator
 from unittest.mock import patch
@@ -9,12 +9,12 @@ import pytest
 from pytest_homeassistant.common import MockConfigEntry
 from zigpy.types import Group
 
-from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_dynamic_scenes.models import Lamp, LampKind, ZoneConfig
+from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
+from custom_components.zha_scenes.models import Lamp, LampKind, ZoneConfig
 
 from .common import FakeTransport, lamp, palette
 
-INTEGRATION = "custom_components.zha_dynamic_scenes"
+INTEGRATION = "custom_components.zha_scenes"
 GROUP = 0xDD92
 ZONE_ID = str(GROUP)
 
@@ -39,15 +39,11 @@ def zha(hass: HomeAssistant, lamps: list[Lamp], transport: FakeTransport) -> Gen
     def zone_lamps(hass: HomeAssistant, zone: ZoneConfig) -> list[Lamp]:
         return lamps if zone.ieee is None else [lamp for lamp in lamps if lamp.ieee == zone.ieee]
 
-    def zone_ieees(hass: HomeAssistant, zone: ZoneConfig) -> set[str]:
-        return {lamp.ieee for lamp in zone_lamps(hass, zone)}
-
     with (
         patch(f"{INTEGRATION}.async_zha_ready", return_value=True),
         patch(f"{INTEGRATION}.config_flow.async_zha_ready", return_value=True),
         patch(f"{INTEGRATION}.manager.ZhaSceneTransport", return_value=transport),
         patch(f"{INTEGRATION}.manager.async_zone_lamps", side_effect=zone_lamps),
-        patch(f"{INTEGRATION}.manager.async_zone_ieees", side_effect=zone_ieees),
         patch(f"{INTEGRATION}.config_flow.async_zone_lamps", side_effect=zone_lamps),
         patch(
             f"{INTEGRATION}.config_flow.async_group_lights",
@@ -63,7 +59,7 @@ def zha(hass: HomeAssistant, lamps: list[Lamp], transport: FakeTransport) -> Gen
 
 @pytest.fixture
 def entry(hass: HomeAssistant) -> MockConfigEntry:
-    """Return the config entry with one zone."""
+    """Return the config entry with one zone that offers palettes `custom:a` and `custom:b`."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         options={
@@ -72,7 +68,7 @@ def entry(hass: HomeAssistant) -> MockConfigEntry:
                     "group_id": GROUP,
                     "entity_id": "light.zone_group",
                     "clusters": [],
-                    "palettes": None,
+                    "palettes": ["custom:a", "custom:b"],
                 }
             ]
         },

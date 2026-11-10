@@ -24,6 +24,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.util.color import color_temperature_mired_to_kelvin
 
+from .builtin import async_builtin_palettes, async_palette_names
 from .const import (
     CONF_ZONES,
     DOMAIN,
@@ -41,14 +42,14 @@ from .engine import (
 )
 from .models import Lamp, LampKind, Palette, PaletteSource, ZoneConfig
 from .protocol import MAX_LEVEL, GradientSceneContent, SceneContent, level_from_percent
-from .zigbee import ZhaSceneTransport, async_zone_ieees, async_zone_lamps
+from .zigbee import ZhaSceneTransport, async_zone_lamps
 
 _LOGGER = logging.getLogger(__name__)
 
 SAVE_DELAY = 5
 
 
-class DynamicScenesManager:
+class ZhaScenesManager:
     """Palette library, zone configuration and activation of palettes on zones."""
 
     def __init__(
@@ -57,51 +58,57 @@ class DynamicScenesManager:
         entry: ConfigEntry,
         store: Store[dict[str, Any]],
         data: dict[str, Any],
+        *,
+        builtin: dict[str, Palette],
+        names: dict[str, str],
     ) -> None:
         """
         Initialize the manager.
 
         :param entry: The config entry; its options hold the zones.
-        :param store: Store holding the library and the scene cache.
+        :param store: Store holding the custom palettes and the scene cache.
         :param data: Loaded store data, or an empty dict.
+        :param builtin: The built-in palettes by id.
+        :param names: Names of the built-in palettes by id, in Home Assistant's language.
         """
         self.hass = hass
         self.palettes: dict[str, Palette] = {
-            item["palette_id"]: Palette.from_dict(item) for item in data.get("palettes", [])
+            **builtin,
+            **{item["palette_id"]: Palette.from_dict(item) for item in data.get("palettes", [])},
         }
         self.zones: dict[str, ZoneConfig] = {
             zone.zone_id: zone
             for zone in map(ZoneConfig.from_dict, entry.options.get(CONF_ZONES, []))
         }
+        self._names = names
         self._store = store
         self._cache = SceneCache(data, self._schedule_save)
         self._engine = SceneEngine(ZhaSceneTransport(hass), self._cache)
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @classmethod
-    async def async_load(cls, hass: HomeAssistant, entry: ConfigEntry) -> DynamicScenesManager:
-        """Create the manager with the stored library and scene cache."""
+    async def async_load(cls, hass: HomeAssistant, entry: ConfigEntry) -> ZhaScenesManager:
+        """Create the manager with the palette library and the scene cache."""
         store = Store[dict[str, Any]](hass, STORAGE_VERSION, DOMAIN)
-        return cls(hass, entry, store, await store.async_load() or {})
+        return cls(
+            hass,
+            entry,
+            store,
+            await store.async_load() or {},
+            builtin=await async_builtin_palettes(hass),
+            names=await async_palette_names(hass, hass.config.language),
+        )
+
+    @callback
+    def palette_name(self, palette: Palette) -> str:
+        """Return the name to show for a palette, translated for a built-in one."""
+        return self._names.get(palette.palette_id, palette.name)
 
     @callback
     def zone_palettes(self, zone: ZoneConfig) -> list[Palette]:
-        """
-        Return the palettes a zone offers, sorted by label.
-
-        Without an explicit choice, a zone offers the imported palettes of the Hue room
-        or zone that best matches its lamps, and all custom palettes.
-        """
-        if zone.palettes is not None:
-            palettes = [self.palettes[p] for p in zone.palettes if p in self.palettes]
-        else:
-            try:
-                ieees = async_zone_ieees(self.hass, zone)
-            except HomeAssistantError as err:
-                _LOGGER.warning("Cannot match palettes to zone: %s", err)
-                ieees = set()
-            palettes = default_palettes(self.palettes.values(), ieees)
-        return sorted(palettes, key=lambda palette: palette.label.casefold())
+        """Return the palettes a zone offers, sorted by name."""
+        palettes = [self.palettes[p] for p in zone.palettes if p in self.palettes]
+        return sorted(palettes, key=lambda palette: self.palette_name(palette).casefold())
 
     async def async_activate(
         self,
@@ -182,22 +189,14 @@ class DynamicScenesManager:
 
     @callback
     def async_update_palettes(self, palettes: Iterable[Palette]) -> None:
-        """
-        Add palettes to the library or replace those with the same id.
-
-        A replaced palette keeps the lamps the new one does not list: a lamp that moved
-        from the Hue bridge to ZHA is gone from a later bridge import.
-        """
+        """Add custom palettes to the library or replace those with the same id."""
         for palette in palettes:
-            if old := self.palettes.get(palette.palette_id):
-                palette.lamps = sorted({*old.lamps, *palette.lamps})
-                palette.group_name = palette.group_name or old.group_name
             self.palettes[palette.palette_id] = palette
         self._library_updated()
 
     @callback
     def async_remove_palettes(self, palette_ids: Iterable[str]) -> None:
-        """Remove palettes from the library."""
+        """Remove custom palettes from the library."""
         for palette_id in palette_ids:
             self.palettes.pop(palette_id, None)
         self._library_updated()
@@ -255,37 +254,15 @@ class DynamicScenesManager:
 
     @callback
     def _data_to_save(self) -> dict[str, Any]:
-        """Return the library and the scene cache to store."""
+        """Return the custom palettes and the scene cache to store."""
         return {
-            "palettes": [palette.to_dict() for palette in self.palettes.values()],
+            "palettes": [
+                palette.to_dict()
+                for palette in self.palettes.values()
+                if palette.source is PaletteSource.CUSTOM
+            ],
             **self._cache.as_dict(),
         }
-
-
-def default_palettes(palettes: Iterable[Palette], ieees: set[str]) -> list[Palette]:
-    """
-    Return the palettes a zone with these lamps offers by default.
-
-    That is all custom palettes, plus the imported palettes of the Hue room or zone whose
-    lamps overlap best (Jaccard index) with the given lamps.
-    """
-    palettes = list(palettes)
-    hue_groups: defaultdict[str | None, set[str]] = defaultdict(set)
-    for palette in palettes:
-        if palette.source is PaletteSource.HUE:
-            hue_groups[palette.group_name].update(palette.lamps)
-    scores = {
-        group: len(members & ieees) / len(members | ieees)
-        for group, members in hue_groups.items()
-        if members & ieees
-    }
-    best = max(scores.values(), default=None)
-    return [
-        palette
-        for palette in palettes
-        if palette.source is PaletteSource.CUSTOM
-        or (best is not None and scores.get(palette.group_name) == best)
-    ]
 
 
 def _scene_content(target: LampTarget, gradient: bool) -> StoredContent:

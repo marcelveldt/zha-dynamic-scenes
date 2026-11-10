@@ -14,29 +14,12 @@
     "step": {
       "init": {
         "menu_options": {
-          "import_hue": "Paletten importeren van een Hue-bridge",
           "add_palette": "Eigen palet toevoegen",
           "edit_palette": "Eigen palet bewerken",
-          "remove_palettes": "Paletten verwijderen",
+          "remove_palettes": "Eigen paletten verwijderen",
           "add_zone": "Zone toevoegen",
           "edit_zone": "Zone bewerken"
         }
-      },
-      "import_hue": {
-        "title": "Importeren van een Hue-bridge",
-        "description": "Leest de dynamische scènes van de bridge. Er wordt niets op de bridge gewijzigd. Importeer voordat je lampen naar ZHA verhuist: dan weet elk palet bij welke lampen het hoort, zodat zones de juiste paletten aanbieden.",
-        "data": {
-          "hue_host": "Host",
-          "hue_app_key": "Applicatiesleutel"
-        },
-        "data_description": {
-          "hue_host": "Hostnaam of IP-adres van de bridge.",
-          "hue_app_key": "Een CLIP v2-applicatiesleutel van de bridge, bijvoorbeeld die van de Hue-integratie."
-        }
-      },
-      "import_done": {
-        "title": "Import klaar",
-        "description": "{count} paletten geïmporteerd of bijgewerkt."
       },
       "add_palette": {
         "title": "Eigen palet toevoegen",
@@ -72,7 +55,7 @@
         }
       },
       "remove_palettes": {
-        "title": "Paletten verwijderen",
+        "title": "Eigen paletten verwijderen",
         "data": {
           "palettes": "Paletten"
         }
@@ -106,12 +89,9 @@
       },
       "zone_palettes": {
         "title": "Paletten van de zone",
+        "description": "De zone biedt elk gekozen palet aan als scène.",
         "data": {
-          "automatic": "Automatisch kiezen",
           "palettes": "Paletten"
-        },
-        "data_description": {
-          "automatic": "Biedt de geïmporteerde paletten van de Hue-ruimte of -zone met dezelfde lampen aan, en alle eigen paletten."
         }
       },
       "add_cluster": {
@@ -129,10 +109,10 @@
       }
     },
     "error": {
-      "cannot_connect": "De Hue-bridge kan niet worden gelezen.",
-      "invalid_auth": "De bridge weigert de applicatiesleutel.",
+      "name_taken": "Een ander palet heeft deze naam al.",
       "invalid_colors": "Geef 2 tot 9 kleuren op als hex RGB, bijvoorbeeld #ff8800.",
-      "cluster_too_small": "Een cluster heeft minstens twee lampen nodig."
+      "cluster_too_small": "Een cluster heeft minstens twee lampen nodig.",
+      "no_palettes": "Kies minstens één palet."
     },
     "abort": {
       "not_loaded": "De integratie draait niet.",
@@ -140,6 +120,140 @@
     }
   },
   "entity": {
+    "scene": {
+      "amber_bloom": {
+        "name": "Amberbloesem"
+      },
+      "arise": {
+        "name": "Opkomen"
+      },
+      "autumn_gold": {
+        "name": "Herfstgoud"
+      },
+      "babys_breath": {
+        "name": "Gipskruid"
+      },
+      "blossom": {
+        "name": "Bloesem"
+      },
+      "blue_planet": {
+        "name": "Blauwe planeet"
+      },
+      "cancun": {
+        "name": "Cancun"
+      },
+      "crocus": {
+        "name": "Krokus"
+      },
+      "dreamy_dusk": {
+        "name": "Dromerige schemering"
+      },
+      "emerald_isle": {
+        "name": "Smaragden eiland"
+      },
+      "forest_adventure": {
+        "name": "Bosavontuur"
+      },
+      "golden_pond": {
+        "name": "Gouden vijver"
+      },
+      "ibiza": {
+        "name": "Ibiza"
+      },
+      "juicy_watermelon": {
+        "name": "Sappige watermeloen"
+      },
+      "lake_mist": {
+        "name": "Meermist"
+      },
+      "lily": {
+        "name": "Lily"
+      },
+      "magneto": {
+        "name": "Magneto"
+      },
+      "malibu_pink": {
+        "name": "Malibu pink"
+      },
+      "miami": {
+        "name": "Miami"
+      },
+      "misty_ridge": {
+        "name": "Mistige heuvelrug"
+      },
+      "moonlight": {
+        "name": "Maanlicht"
+      },
+      "nebula": {
+        "name": "Nevel"
+      },
+      "nighttime": {
+        "name": "'s Nachts"
+      },
+      "ocean_dawn": {
+        "name": "Oceaandageraad"
+      },
+      "orange_fields": {
+        "name": "Oranje velden"
+      },
+      "palm_beach": {
+        "name": "Palm Beach"
+      },
+      "pandemonium": {
+        "name": "Pandemonium"
+      },
+      "pensive": {
+        "name": "Peinzend"
+      },
+      "precious": {
+        "name": "Precious"
+      },
+      "rolling_hills": {
+        "name": "Glooiende heuvels"
+      },
+      "ruby_glow": {
+        "name": "Robijngloed"
+      },
+      "santorini": {
+        "name": "Santorini"
+      },
+      "savanna_sunset": {
+        "name": "Savanne zonsondergang"
+      },
+      "shine": {
+        "name": "Stralen"
+      },
+      "silverstone": {
+        "name": "Silverstone"
+      },
+      "sleepy": {
+        "name": "Slaperig"
+      },
+      "soho": {
+        "name": "Soho"
+      },
+      "spring_lake": {
+        "name": "Lentemeer"
+      },
+      "starlight": {
+        "name": "Sterrenlicht"
+      },
+      "storybook": {
+        "name": "Sprookjesboek"
+      },
+      "sundown": {
+        "name": "Ondergaande zon"
+      },
+      "tokyo": {
+        "name": "Tokio"
+      },
+      "unwind": {
+        "name": "Ontladen"
+      },
+      "vapor_wave": {
+        "name": "Dampgolf"
+      }
+    },
     "select": {
       "dynamic_scene": {
         "name": "Dynamische scène"

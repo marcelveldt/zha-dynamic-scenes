@@ -22,24 +22,24 @@ with another Signify Scenes command (`0x02`) that carries on, level, transition 
 
 ## Concepts
 
-- **Palette**: colours (CIE xy with a brightness), a speed, an optional colour temperature for lamps without
-  colour, and for imported Hue scenes the IEEE addresses of the scene's lamps, which decide the zones that
-  offer it. A Hue lamp keeps its IEEE address when it moves to ZHA.
+- **Palette**: colours (CIE xy with a brightness), a speed and an optional colour temperature for lamps
+  without colour. A palette is built-in (see below) or custom, added in the options.
 - **Zone**: a ZHA group. The palette start is one groupcast to the group, so all lamps start at the same
   moment. A zone can also be a single ZHA light (ZHA makes no group light for a group of one): its palette
-  start is a unicast to the lamp, and it has no clusters.
+  start is a unicast to the lamp, and it has no clusters. A zone offers the palettes chosen for it, at least
+  one.
 - **Cluster**: lamps of a zone that must share a start colour, for example a pair of lamps on both sides
   of a door. Every other lamp is a cluster of its own.
 
 ## Layout
 
 ```
-custom_components/zha_dynamic_scenes/
+custom_components/zha_scenes/
   protocol.py     ZCL frame encoding, no Home Assistant or zigpy imports
   engine.py       start colour assignment, scene slot cache, palette start over a transport
   zigbee.py       ZHA access: zone lamps, lamp capabilities, frames through ZHA's zigpy application
   manager.py      runtime: palette library, zones, activation (Zigbee and plain light calls)
-  hue_import.py   read-only import of palettes from a Hue bridge (CLIP v2)
+  builtin.py      the built-in palettes (palettes.json) and their translated names
   models.py       palettes, zones, lamps
   config_flow.py  setup and the options flow for palettes, zones and clusters
   scene.py        one scene entity per palette a zone offers
@@ -53,10 +53,20 @@ Dependencies point inwards: `protocol` knows nothing else, `engine` only knows `
 ## Entities
 
 Every zone has, on the device of its ZHA group (or of its single light), a select entity with the
-palettes it offers and a scene entity per offered palette. `scene.turn_on` starts the palette with its own
+palettes it offers and a scene entity per offered palette. A built-in palette's scene takes its name from
+the translations, a custom palette's scene its own name. `scene.turn_on` starts the palette with its own
 speed and brightness; the `activate` service can override speed, brightness and transition. The scene
 entities follow the library and the zone setup: scene entities of palettes a zone no longer offers are
 removed, also from the entity registry.
+
+## Built-in palettes
+
+`palettes.json` holds the 44 palettes of the Hue gallery: per palette an id, the English name, the colours
+(CIE xy with a brightness in percent), the speed and optionally a colour temperature for lamps without
+colour. The names shown in Home Assistant come from the translations (`entity.scene.<palette id>.name`), so
+every palette needs a name in each translation file; a test checks that. The file is read once and never
+stored: the Home Assistant storage holds only the custom palettes and the scene cache, and the palette ids
+in a zone refer to either kind.
 
 ## Activating a palette
 
@@ -92,7 +102,7 @@ that group or receives a Remove All Scenes for it. Since a lamp can be in severa
 unique over all zones; when all are taken, the least recently used one is reused.
 
 The cache of slots, stored contents and which lamps show gradients is kept in Home Assistant storage, next
-to the palette library. It is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp
+to the custom palettes. It is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp
 does) or was removed. The `rewrite_scenes` service clears a zone's scenes by hand, for scenes removed by
 other means.
 
@@ -108,8 +118,8 @@ write is retried once.
   group, like ZHA's own group commands.
 - **No polling or state tracking.** Lamps do not report a running palette, so the select entity shows the
   palette started last, by any entity or service.
-- **The library is independent of the bridge.** Imported palettes stay usable after the lamps and the bridge
-  part ways; nothing is written to the bridge.
+- **No Hue bridge needed.** The built-in palettes ship with the integration; nothing is read from or
+  written to a bridge.
 
 ## Tests and checks
 
