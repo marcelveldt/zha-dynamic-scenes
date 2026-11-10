@@ -76,6 +76,7 @@ class DynamicScenesManager:
         self._store = store
         self._cache = SceneCache(data, self._schedule_save)
         self._engine = SceneEngine(ZhaSceneTransport(hass), self._cache)
+        self._locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @classmethod
     async def async_load(cls, hass: HomeAssistant, entry: ConfigEntry) -> DynamicScenesManager:
@@ -123,51 +124,56 @@ class DynamicScenesManager:
         :param transition: Transition time in seconds.
         :raises HomeAssistantError: The zone's group is unknown or could not be reached.
         """
-        palette = self.palettes[palette_id]
-        lamps = async_zone_lamps(self.hass, group_id)
-        targets = assign_targets(lamps, self.zones[group_id].clusters, palette)
-        dynamic = [lamp for lamp in lamps if lamp.kind is LampKind.DYNAMIC]
-        gradient_lamps: set[str] = set()
-        failed: list[Lamp] = []
-        if dynamic:
-            gradient_lamps = await self._engine.async_gradient_lamps(dynamic)
-            contents = [
-                (lamp, _scene_content(targets[lamp.ieee], lamp.ieee in gradient_lamps))
-                for lamp in dynamic
-            ]
-            try:
-                failed = await self._engine.async_start(
-                    group_id,
-                    palette,
-                    contents,
-                    speed=palette.speed if speed is None else speed,
-                    brightness=None if brightness is None else min(MAX_LEVEL, brightness),
-                    transition=None if transition is None else round(transition * 10),
-                )
-            except TransportError as err:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="send_failed",
-                    translation_placeholders={"error": str(err)},
-                ) from err
-        # lamps that could not store the scene still get their start colour, gradient lamps
-        # the first point of their gradient
-        for lamp in failed:
-            if lamp.ieee in gradient_lamps:
-                target = targets[lamp.ieee]
-                targets[lamp.ieee] = replace(target, xy=target.gradient.points[0])
-        static = [lamp for lamp in lamps if lamp.kind is not LampKind.DYNAMIC] + failed
-        results = await asyncio.gather(
-            *(
-                self._async_turn_on(lamp, targets[lamp.ieee], brightness, transition, context)
-                for lamp in static
-            ),
-            return_exceptions=True,
-        )
-        for lamp, result in zip(static, results, strict=True):
-            if isinstance(result, Exception):
-                _LOGGER.warning("Could not set %s to its start state: %s", lamp.entity_id, result)
-        async_dispatcher_send(self.hass, SIGNAL_ZONE_ACTIVATED.format(group_id), palette_id)
+        # one activation per zone at a time, so the lights and the zone's signal end up with
+        # the start that came last
+        async with self._locks[group_id]:
+            palette = self.palettes[palette_id]
+            lamps = async_zone_lamps(self.hass, group_id)
+            targets = assign_targets(lamps, self.zones[group_id].clusters, palette)
+            dynamic = [lamp for lamp in lamps if lamp.kind is LampKind.DYNAMIC]
+            gradient_lamps: set[str] = set()
+            failed: list[Lamp] = []
+            if dynamic:
+                gradient_lamps = await self._engine.async_gradient_lamps(dynamic)
+                contents = [
+                    (lamp, _scene_content(targets[lamp.ieee], lamp.ieee in gradient_lamps))
+                    for lamp in dynamic
+                ]
+                try:
+                    failed = await self._engine.async_start(
+                        group_id,
+                        palette,
+                        contents,
+                        speed=palette.speed if speed is None else speed,
+                        brightness=None if brightness is None else min(MAX_LEVEL, brightness),
+                        transition=None if transition is None else round(transition * 10),
+                    )
+                except TransportError as err:
+                    raise HomeAssistantError(
+                        translation_domain=DOMAIN,
+                        translation_key="send_failed",
+                        translation_placeholders={"error": str(err)},
+                    ) from err
+            # lamps that could not store the scene still get their start colour, gradient lamps
+            # the first point of their gradient
+            for lamp in failed:
+                if lamp.ieee in gradient_lamps:
+                    target = targets[lamp.ieee]
+                    targets[lamp.ieee] = replace(target, xy=target.gradient.points[0])
+            static = [lamp for lamp in lamps if lamp.kind is not LampKind.DYNAMIC] + failed
+            results = await asyncio.gather(
+                *(
+                    self._async_turn_on(lamp, targets[lamp.ieee], brightness, transition, context)
+                    for lamp in static
+                ),
+                return_exceptions=True,
+            )
+            for lamp, result in zip(static, results, strict=True):
+                if isinstance(result, Exception):
+                    _LOGGER.warning(
+                        "Could not set %s to its start state: %s", lamp.entity_id, result
+                    )
+            async_dispatcher_send(self.hass, SIGNAL_ZONE_ACTIVATED.format(group_id), palette_id)
 
     @callback
     def async_update_palettes(self, palettes: Iterable[Palette]) -> None:
