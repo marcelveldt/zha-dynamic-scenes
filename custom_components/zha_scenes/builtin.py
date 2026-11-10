@@ -26,7 +26,7 @@ STANDARD_SCENES = {
         StandardScene("nightlight", 14, 10, 500),
         StandardScene("concentrate", 15, 100, 233),
         StandardScene("energize", 16, 100, 156),
-        StandardScene("rest", 17, 35, 500),
+        StandardScene("rest", 17, 25, 500),
         StandardScene("cool_bright", 18, 100, 250),
     )
 }

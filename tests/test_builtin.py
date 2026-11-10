@@ -42,7 +42,7 @@ def test_standard_scenes() -> None:
         (14, 10, 500),
         (15, 100, 233),
         (16, 100, 156),
-        (17, 35, 500),
+        (17, 25, 500),
         (18, 100, 250),
     ]
     assert all(key == scene.key for key, scene in STANDARD_SCENES.items())
