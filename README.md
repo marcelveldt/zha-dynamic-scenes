@@ -31,7 +31,8 @@ with another Signify Scenes command (`0x02`) that carries on, level, transition 
   lamps), keyed by IEEE address. A Hue lamp keeps its IEEE address when it moves to ZHA, so the per-lamp
   start colours survive the move.
 - **Zone**: a ZHA group. The palette start is one groupcast to the group, so all lamps start at the same
-  moment.
+  moment. A zone can also be a single ZHA light (ZHA makes no group light for a group of one): its palette
+  start is a unicast to the lamp, and it has no clusters.
 - **Cluster**: lamps of a zone that must share a start colour, for example a pair of lamps on both sides
   of a door. Every other lamp is a cluster of its own.
 
@@ -56,11 +57,11 @@ Dependencies point inwards: `protocol` knows nothing else, `engine` only knows `
 
 ## Entities
 
-Every zone has, on the device of its ZHA group, a select entity with the palettes it offers and a scene
-entity per offered palette. `scene.turn_on` starts the palette with its own speed and brightness; the
-`activate` service can override speed, brightness and transition. The scene entities follow the library
-and the zone setup: scene entities of palettes a zone no longer offers are removed, also from the entity
-registry.
+Every zone has, on the device of its ZHA group (or of its single light), a select entity with the
+palettes it offers and a scene entity per offered palette. `scene.turn_on` starts the palette with its own
+speed and brightness; the `activate` service can override speed, brightness and transition. The scene
+entities follow the library and the zone setup: scene entities of palettes a zone no longer offers are
+removed, also from the entity registry.
 
 ## Blueprints
 
@@ -75,9 +76,9 @@ URL.
 
 ## Activating a palette
 
-1. `zigbee` resolves the zone's ZHA group to its available lights and classifies each one: a Signify colour lamp with
-   the Hue effects cluster (`0xFC03`) on its light endpoint animates (`dynamic`); other lights are colour,
-   colour temperature or plain lights.
+1. `zigbee` resolves the zone's ZHA group (or its single light) to its available lights and classifies
+   each one: a Signify colour lamp with the Hue effects cluster (`0xFC03`) on its light endpoint animates
+   (`dynamic`); other lights are colour, colour temperature or plain lights.
 2. `engine.assign_targets` gives every cluster a start state: the Hue scene action of one of its lamps if
    the palette has one, otherwise the next palette colour. Likewise every cluster gets a gradient: the Hue
    gradient of one of its lamps, otherwise the first five palette colours. The result only depends on the
@@ -86,7 +87,8 @@ URL.
    scene id and writes the scene only to lamps whose stored content is unknown or different, with a unicast
    Enhanced Add Scene (on, level, xy) or, for gradient lamps, the Signify command (on, level, gradient).
    Whether a lamp shows gradients is read once from the Hue effects cluster (manufacturer specific
-   attribute `0x0001`, bit `0x08`). Then it sends the dynamic palette command once to the zone's group.
+   attribute `0x0001`, bit `0x08`). Then it sends the dynamic palette command once to the zone's group,
+   or as a unicast to the lamp of a single-light zone.
 4. The other lights get a plain `light.turn_on` with their start colour or the palette's colour
    temperature. A dynamic lamp that could not store the scene gets the same treatment, a gradient lamp with
    the first colour of its gradient.
@@ -98,12 +100,13 @@ Brightness percentages become levels the way the Hue bridge maps them,
 
 Scenes are written lazily: a palette gets a scene id (`0x80`-`0xFE`) the first time it is started in a
 zone, and a lamp is written only when what it should store differs from what it is known to store. After
-the first start, starting a palette costs one groupcast and no flash writes in the lamps.
+the first start, starting a palette costs one groupcast (a unicast for a single light) and no flash writes
+in the lamps.
 
 Like the Hue bridge, the scenes are stored in group `0x0000`; the zone's group only addresses the
-groupcast. Scenes of a real group would be deleted when a lamp leaves that group or receives a Remove All
-Scenes for it. Since a lamp can be in several zones, scene ids are unique over all zones; when all are
-taken, the least recently used one is reused.
+groupcast, so a single light needs no group. Scenes of a real group would be deleted when a lamp leaves
+that group or receives a Remove All Scenes for it. Since a lamp can be in several zones, scene ids are
+unique over all zones; when all are taken, the least recently used one is reused.
 
 The cache of slots, stored contents and which lamps show gradients is kept in Home Assistant storage, next
 to the palette library. It is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp

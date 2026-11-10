@@ -10,12 +10,13 @@ from pytest_homeassistant.common import MockConfigEntry
 from zigpy.types import Group
 
 from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_dynamic_scenes.models import Lamp, LampKind
+from custom_components.zha_dynamic_scenes.models import Lamp, LampKind, ZoneConfig
 
 from .common import FakeTransport, lamp, palette
 
 INTEGRATION = "custom_components.zha_dynamic_scenes"
 GROUP = 0xDD92
+ZONE_ID = str(GROUP)
 
 
 @pytest.fixture
@@ -32,23 +33,28 @@ def transport() -> FakeTransport:
 
 @pytest.fixture
 def zha(hass: HomeAssistant, lamps: list[Lamp], transport: FakeTransport) -> Generator[None]:
-    """Pretend ZHA runs with one group holding the lamps."""
+    """Pretend ZHA runs with one group holding the lamps; a single light zone is one lamp."""
     hass.config.components.add("zha")
+
+    def zone_lamps(hass: HomeAssistant, zone: ZoneConfig) -> list[Lamp]:
+        return lamps if zone.ieee is None else [lamp for lamp in lamps if lamp.ieee == zone.ieee]
+
+    def zone_ieees(hass: HomeAssistant, zone: ZoneConfig) -> set[str]:
+        return {lamp.ieee for lamp in zone_lamps(hass, zone)}
+
     with (
         patch(f"{INTEGRATION}.async_zha_ready", return_value=True),
         patch(f"{INTEGRATION}.config_flow.async_zha_ready", return_value=True),
         patch(f"{INTEGRATION}.manager.ZhaSceneTransport", return_value=transport),
-        patch(f"{INTEGRATION}.manager.async_zone_lamps", return_value=lamps),
-        patch(
-            f"{INTEGRATION}.manager.async_group_member_ieees",
-            return_value={lamp.ieee for lamp in lamps},
-        ),
-        patch(f"{INTEGRATION}.config_flow.async_zone_lamps", return_value=lamps),
+        patch(f"{INTEGRATION}.manager.async_zone_lamps", side_effect=zone_lamps),
+        patch(f"{INTEGRATION}.manager.async_zone_ieees", side_effect=zone_ieees),
+        patch(f"{INTEGRATION}.config_flow.async_zone_lamps", side_effect=zone_lamps),
         patch(
             f"{INTEGRATION}.config_flow.async_group_lights",
             # ZHA hands out zigpy's group id type, an int that prints as hex
             return_value={"light.zone_group": Group(GROUP)},
         ),
+        patch(f"{INTEGRATION}.config_flow.async_device_lights", return_value={}),
         patch(f"{INTEGRATION}.config_flow.async_group_name", return_value="Zone group"),
         patch(f"{INTEGRATION}.async_listen_scene_losses", return_value=lambda: None),
     ):

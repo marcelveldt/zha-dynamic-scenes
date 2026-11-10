@@ -63,6 +63,8 @@ class FakeTransport:
         # manufacturer specific (Signify) unicasts
         self.signify_requests: list[tuple[str, int, bytes]] = []
         self.groupcasts: list[tuple[int, bytes]] = []
+        # dynamic palette starts sent to one lamp
+        self.unicasts: list[tuple[str, bytes]] = []
         # ieee -> statuses to answer in turn; None means no response
         self.answers: dict[str, list[int | None]] = {}
         # ieee -> Hue features bitmap; None means no response
@@ -94,3 +96,7 @@ class FakeTransport:
     async def async_start_dynamic(self, group_id: int, payload: bytes) -> None:
         """Record a groupcast."""
         self.groupcasts.append((group_id, payload))
+
+    async def async_start_dynamic_lamp(self, lamp: Lamp, payload: bytes) -> None:
+        """Record a dynamic start sent to one lamp."""
+        self.unicasts.append((lamp.ieee, payload))

@@ -25,7 +25,7 @@ from custom_components.zha_dynamic_scenes.protocol import (
 )
 
 from .common import BLUE, FEATURES_GRADIENT, GREEN, RED, FakeTransport, lamp, palette
-from .conftest import GROUP
+from .conftest import GROUP, ZONE_ID
 
 
 @pytest.mark.usefixtures("zha")
@@ -36,7 +36,7 @@ async def test_activate_mixed_zone(
     manager.async_update_palettes([palette()])
     calls = async_mock_service(hass, "light", "turn_on")
 
-    await manager.async_activate(GROUP, "custom:a")
+    await manager.async_activate(ZONE_ID, "custom:a")
 
     # start colours by entity id: lamp 1 red, 2 green, 3 blue, 4 red
     assert sorted(transport.requests) == sorted(
@@ -79,7 +79,7 @@ async def test_activate_gradient_lamp(
     calls = async_mock_service(hass, "light", "turn_on")
     transport.features[lamp(1).ieee] = FEATURES_GRADIENT
 
-    await manager.async_activate(GROUP, "hue:a")
+    await manager.async_activate(ZONE_ID, "hue:a")
 
     # the gradient lamp stores its gradient like the Hue bridge does
     assert transport.signify_requests == [
@@ -116,7 +116,7 @@ async def test_failed_gradient_lamp_gets_its_first_gradient_point(
     transport.features[lamp(2).ieee] = FEATURES_GRADIENT
     transport.answers[lamp(2).ieee] = [None]
 
-    await manager.async_activate(GROUP, "custom:a")
+    await manager.async_activate(ZONE_ID, "custom:a")
 
     # its start colour is green; its gradient is the palette, which starts red
     assert {call.data["entity_id"]: call.data for call in calls}["light.lamp_02"] == {
@@ -135,7 +135,7 @@ async def test_activate_overrides_and_failed_lamp_fallback(
     calls = async_mock_service(hass, "light", "turn_on")
     transport.answers[lamp(2).ieee] = [None]
 
-    await manager.async_activate(GROUP, "custom:a", speed=1, brightness=255, transition=1.5)
+    await manager.async_activate(ZONE_ID, "custom:a", speed=1, brightness=255, transition=1.5)
 
     assert transport.groupcasts == [
         (
@@ -175,7 +175,7 @@ async def test_failing_light_does_not_stop_the_activation(
             raise HomeAssistantError("unreachable")
 
     hass.services.async_register("light", "turn_on", turn_on)
-    await manager.async_activate(GROUP, "custom:a")
+    await manager.async_activate(ZONE_ID, "custom:a")
     assert len(transport.groupcasts) == 1
     assert "Could not set light.lamp_03 to its start state: unreachable" in caplog.text
 
@@ -224,10 +224,10 @@ async def test_activations_of_a_zone_run_one_after_another(
             await release.wait()
 
     hass.services.async_register("light", "turn_on", turn_on)
-    first = hass.async_create_task(manager.async_activate(GROUP, "custom:a"))
+    first = hass.async_create_task(manager.async_activate(ZONE_ID, "custom:a"))
     await first_waits.wait()
     hold = False
-    second = hass.async_create_task(manager.async_activate(GROUP, "custom:b"))
+    second = hass.async_create_task(manager.async_activate(ZONE_ID, "custom:b"))
     for _ in range(20):
         await asyncio.sleep(0)
     release.set()
@@ -244,7 +244,7 @@ async def test_library_and_cache_are_stored(
     manager = await DynamicScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette()])
     async_mock_service(hass, "light", "turn_on")
-    await manager.async_activate(GROUP, "custom:a")
+    await manager.async_activate(ZONE_ID, "custom:a")
     await manager.async_save()
 
     data = hass_storage[DOMAIN]["data"]
@@ -276,7 +276,7 @@ def test_default_palettes_pick_best_matching_hue_group() -> None:
 @pytest.mark.usefixtures("zha")
 async def test_zone_palettes(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     manager = await DynamicScenesManager.async_load(hass, entry)
-    zone = manager.zones[GROUP]
+    zone = manager.zones[ZONE_ID]
     manager.async_update_palettes(
         [palette("custom:b"), palette("hue:a", actions={lamp(1).ieee: LightAction()})]
     )

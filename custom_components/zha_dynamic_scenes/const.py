@@ -17,7 +17,7 @@ SERVICE_ACTIVATE: Final = "activate"
 SERVICE_REWRITE_SCENES: Final = "rewrite_scenes"
 
 SIGNAL_LIBRARY_UPDATED: Final = f"{DOMAIN}_library_updated"
-# per zone (group id), with the id of the started palette and the context that started it
+# per zone (zone id), with the id of the started palette and the context that started it
 SIGNAL_ZONE_ACTIVATED: Final = SignalTypeFormat[str, Context | None](
     f"{DOMAIN}_zone_activated_{{}}"
 )

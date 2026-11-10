@@ -75,9 +75,9 @@ class ZonePaletteScene(BaseScene):
         zone: ZoneConfig,
         palette: Palette,
     ) -> None:
-        """Initialize the scene on the device of the zone's ZHA group."""
+        """Initialize the scene on the device of the zone's ZHA group or light."""
         self._manager = manager
-        self._group_id = zone.group_id
+        self._zone_id = zone.zone_id
         self._palette_id = palette.palette_id
         self._attr_name = palette.name
         self._attr_unique_id = _unique_id(zone, palette)
@@ -93,7 +93,7 @@ class ZonePaletteScene(BaseScene):
         )
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, SIGNAL_ZONE_ACTIVATED.format(self._group_id), self._handle_activated
+                self.hass, SIGNAL_ZONE_ACTIVATED.format(self._zone_id), self._handle_activated
             )
         )
 
@@ -105,7 +105,7 @@ class ZonePaletteScene(BaseScene):
             (0..1) and `brightness` (1..255) instead of the palette's.
         """
         await self._manager.async_activate(
-            self._group_id,
+            self._zone_id,
             self._palette_id,
             speed=kwargs.get(ATTR_SPEED),
             brightness=kwargs.get(ATTR_BRIGHTNESS),
@@ -133,4 +133,4 @@ class ZonePaletteScene(BaseScene):
 
 def _unique_id(zone: ZoneConfig, palette: Palette) -> str:
     """Return the unique id of a zone's palette scene."""
-    return f"{zone.group_id:04x}_{palette.palette_id}"
+    return f"{zone.unique_id}_{palette.palette_id}"
