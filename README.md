@@ -22,7 +22,7 @@ frames when a scene starts: no colour loop on the host, and lamps that share a c
 ## Setup
 
 1. Add the integration under *Settings > Devices & services > Add integration > ZHA dynamic scenes*.
-2. Open its options to set it up:
+2. Select *Configure* on the integration to set it up:
    - **Palettes:** import the dynamic scenes of a Hue bridge (read-only), or add your own from hex colours.
    - **Zones:** pick a ZHA group (or a single ZHA light) and the palettes it offers.
    - **Clusters** (optional): lamps of a zone that always share a colour, for example the two lamps on
@@ -44,9 +44,9 @@ the dial to the zone's ZHA group so dimming and off work without Home Assistant.
 
 ## How it works
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the Zigbee commands, the design and how to run the tests.
+See [DEVELOPMENT.md](https://github.com/marcelveldt/zha-dynamic-scenes/blob/main/DEVELOPMENT.md) for the Zigbee commands, the design and how to run the tests.
 Inspired by [hass-scene_presets](https://github.com/Hypfer/hass-scene_presets).
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](https://github.com/marcelveldt/zha-dynamic-scenes/blob/main/LICENSE)
