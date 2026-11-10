@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_TRANSITION
+from homeassistant.components.scene import DOMAIN as SCENE_DOMAIN
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv, service
+from homeassistant.helpers import service
 import probatio
 
-from .const import ATTR_PALETTE, ATTR_SPEED, DOMAIN, SERVICE_ACTIVATE, SERVICE_REWRITE_SCENES
+from .const import ATTR_SPEED, DOMAIN, SERVICE_ACTIVATE, SERVICE_REWRITE_SCENES
 
 
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
-    """Register the services, which target the zones' select entities."""
+    """Register `activate` for the palette scenes and `rewrite_scenes` for the zone selects."""
     service.async_register_platform_entity_service(
         hass,
         DOMAIN,
         SERVICE_ACTIVATE,
-        entity_domain=SELECT_DOMAIN,
+        entity_domain=SCENE_DOMAIN,
         schema={
-            probatio.Required(ATTR_PALETTE): cv.string,
             probatio.Optional(ATTR_SPEED): probatio.All(
                 probatio.Coerce(float), probatio.Range(min=0, max=1)
             ),
@@ -31,7 +31,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 probatio.Coerce(float), probatio.Range(min=0, max=6553)
             ),
         },
-        func="async_activate",
+        # the entry point of `scene.turn_on`, which records the activation
+        func="_async_activate",
     )
     service.async_register_platform_entity_service(
         hass,

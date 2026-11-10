@@ -2,13 +2,8 @@ activate:
   target:
     entity:
       integration: zha_dynamic_scenes
-      domain: select
+      domain: scene
   fields:
-    palette:
-      required: true
-      example: "Blossom"
-      selector:
-        text:
     speed:
       selector:
         number:
@@ -26,9 +21,10 @@ activate:
       selector:
         number:
           min: 0
-          max: 300
+          max: 6553
           step: 0.1
           unit_of_measurement: seconds
+          mode: box
 
 rewrite_scenes:
   target:

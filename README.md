@@ -46,12 +46,21 @@ custom_components/zha_dynamic_scenes/
   hue_import.py   read-only import of palettes from a Hue bridge (CLIP v2)
   models.py       palettes, zones, lamps
   config_flow.py  setup and the options flow for palettes, zones and clusters
+  scene.py        one scene entity per palette a zone offers
   select.py       one select entity per zone
-  services.py     `activate` and `rewrite_scenes`, targeting the zone select entities
+  services.py     `activate` on the scene entities, `rewrite_scenes` on the select entities
 ```
 
 Dependencies point inwards: `protocol` knows nothing else, `engine` only knows `protocol` and the models,
 `zigbee` is the only module that touches ZHA and zigpy, and `manager` wires them together.
+
+## Entities
+
+Every zone has, on the device of its ZHA group, a select entity with the palettes it offers and a scene
+entity per offered palette. `scene.turn_on` starts the palette with its own speed and brightness; the
+`activate` service can override speed, brightness and transition. The scene entities follow the library
+and the zone setup: scene entities of palettes a zone no longer offers are removed, also from the entity
+registry.
 
 ## Activating a palette
 
@@ -101,6 +110,6 @@ write is retried once.
   (so ZHA's request handling, retries and response matching apply) and the groupcast through the zigpy
   group, like ZHA's own group commands.
 - **No polling or state tracking.** Lamps do not report a running palette, so the select entity shows the
-  last started palette.
+  palette started last, by any entity or service.
 - **The library is independent of the bridge.** Imported palettes stay usable after the lamps and the bridge
   part ways; nothing is written to the bridge.

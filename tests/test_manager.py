@@ -1,11 +1,14 @@
 """Activation of palettes on zones and the default palette choice."""
 
+import asyncio
+
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
-from custom_components.zha_dynamic_scenes.const import DOMAIN
+from custom_components.zha_dynamic_scenes.const import DOMAIN, SIGNAL_ZONE_ACTIVATED
 from custom_components.zha_dynamic_scenes.manager import DynamicScenesManager, default_palettes
 from custom_components.zha_dynamic_scenes.models import (
     Gradient,
@@ -196,6 +199,42 @@ async def test_reimport_keeps_actions_of_lamps_the_bridge_lost(
     merged = manager.palettes["hue:a"]
     assert merged.actions == {lamp(1).ieee: moved, lamp(2).ieee: kept}
     assert merged.group_name == "Room"
+
+
+@pytest.mark.usefixtures("zha")
+async def test_activations_of_a_zone_run_one_after_another(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager.async_update_palettes([palette("custom:a"), palette("custom:b")])
+    started: list[str] = []
+    async_dispatcher_connect(
+        hass, SIGNAL_ZONE_ACTIVATED.format(GROUP), lambda palette_id, _: started.append(palette_id)
+    )
+    release = asyncio.Event()
+    first_waits = asyncio.Event()
+    blocked: list[str] = []
+    hold = True
+
+    async def turn_on(call: ServiceCall) -> None:
+        if hold:
+            blocked.append(call.data["entity_id"])
+            if len(blocked) == 2:  # the first start waits on its two static lights
+                first_waits.set()
+            await release.wait()
+
+    hass.services.async_register("light", "turn_on", turn_on)
+    first = hass.async_create_task(manager.async_activate(GROUP, "custom:a"))
+    await first_waits.wait()
+    hold = False
+    second = hass.async_create_task(manager.async_activate(GROUP, "custom:b"))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    release.set()
+    await first
+    await second
+    # the later start finishes last, so the zone shows it
+    assert started == ["custom:a", "custom:b"]
 
 
 @pytest.mark.usefixtures("zha")

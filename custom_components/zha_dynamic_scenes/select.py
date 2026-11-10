@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from homeassistant.components.select import SelectEntity
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -12,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import DynamicScenesConfigEntry
-from .const import DOMAIN, SIGNAL_LIBRARY_UPDATED
+from .const import SIGNAL_LIBRARY_UPDATED, SIGNAL_ZONE_ACTIVATED
 from .manager import DynamicScenesManager
 from .models import ZoneConfig
 
@@ -29,7 +28,7 @@ async def async_setup_entry(
     registry = er.async_get(hass)
     zones = {_unique_id(group_id) for group_id in manager.zones}
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if entity.unique_id not in zones:
+        if entity.domain == SELECT_DOMAIN and entity.unique_id not in zones:
             registry.async_remove(entity.entity_id)
     async_add_entities(ZoneSceneSelect(hass, manager, zone) for zone in manager.zones.values())
 
@@ -67,44 +66,34 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
                 self.hass, SIGNAL_LIBRARY_UPDATED, self._handle_library_updated
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ZONE_ACTIVATED.format(self._zone.group_id),
+                self._handle_activated,
+            )
+        )
 
     async def async_select_option(self, option: str) -> None:
         """Start the selected palette with its own speed and brightness."""
-        await self.async_activate(option)
-
-    async def async_activate(
-        self,
-        palette: str,
-        speed: float | None = None,
-        brightness: int | None = None,
-        transition: float | None = None,
-    ) -> None:
-        """
-        Start a palette on the zone.
-
-        :param palette: Label or name of a palette the zone offers, or a palette id.
-        :param speed: Animation speed 0..1 instead of the palette's.
-        :param brightness: Brightness 1..255 instead of the palette's.
-        :param transition: Transition time in seconds.
-        """
-        palette_id = self._resolve(palette)
         await self._manager.async_activate(
-            self._zone.group_id,
-            palette_id,
-            speed=speed,
-            brightness=brightness,
-            transition=transition,
-            context=self._context,
+            self._zone.group_id, self._palette_ids[option], context=self._context
         )
+
+    async def async_rewrite_scenes(self) -> None:
+        """Write the zone's scenes to the lamps again on their next use."""
+        self._manager.async_rewrite_zone(self._zone.group_id)
+
+    @callback
+    def _handle_activated(self, palette_id: str, context: Context | None) -> None:
+        """Show the palette that was started last."""
+        if context is not None:
+            self.async_set_context(context)
         self._attr_current_option = next(
             (label for label, pid in self._palette_ids.items() if pid == palette_id),
             None,
         )
         self.async_write_ha_state()
-
-    async def async_rewrite_scenes(self) -> None:
-        """Write the zone's scenes to the lamps again on their next use."""
-        self._manager.async_rewrite_zone(self._zone.group_id)
 
     @callback
     def _handle_library_updated(self) -> None:
@@ -118,21 +107,6 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         palettes = self._manager.zone_palettes(self._zone)
         self._palette_ids = {palette.label: palette.palette_id for palette in palettes}
         self._attr_options = list(self._palette_ids)
-
-    def _resolve(self, palette: str) -> str:
-        """Return the palette id for a label, name or id."""
-        if palette in self._palette_ids:
-            return self._palette_ids[palette]
-        for candidate in self._manager.zone_palettes(self._zone):
-            if candidate.name == palette:
-                return candidate.palette_id
-        if palette in self._manager.palettes:
-            return palette
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key="unknown_palette",
-            translation_placeholders={"palette": palette},
-        )
 
 
 def _unique_id(group_id: int) -> str:

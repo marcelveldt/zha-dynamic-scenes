@@ -152,20 +152,13 @@
     },
     "send_failed": {
       "message": "De dynamische scène kon niet worden gestart: {error}"
-    },
-    "unknown_palette": {
-      "message": "Onbekend palet: {palette}"
     }
   },
   "services": {
     "activate": {
       "name": "Activeren",
-      "description": "Start een palet op een zone.",
+      "description": "Start het palet van een scène op de zone, eventueel met een andere snelheid, helderheid of overgang.",
       "fields": {
-        "palette": {
-          "name": "Palet",
-          "description": "Naam van een palet van de zone, zoals in de select-entiteit."
-        },
         "speed": {
           "name": "Snelheid",
           "description": "Animatiesnelheid van 0 tot 1 in plaats van die van het palet."

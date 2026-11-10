@@ -4,6 +4,7 @@ from collections.abc import Generator
 from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
 from zigpy.types import Group
@@ -11,7 +12,7 @@ from zigpy.types import Group
 from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_dynamic_scenes.models import Lamp, LampKind
 
-from .common import FakeTransport, lamp
+from .common import FakeTransport, lamp, palette
 
 INTEGRATION = "custom_components.zha_dynamic_scenes"
 GROUP = 0xDD92
@@ -71,4 +72,38 @@ def entry(hass: HomeAssistant) -> MockConfigEntry:
         },
     )
     entry.add_to_hass(hass)
+    return entry
+
+
+@pytest.fixture
+def group_device(
+    hass: HomeAssistant, device_registry: dr.DeviceRegistry, entity_registry: er.EntityRegistry
+) -> dr.DeviceEntry:
+    """Register the device and the light of the zone's ZHA group, as ZHA does."""
+    zha_entry = MockConfigEntry(domain="zha")
+    zha_entry.add_to_hass(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=zha_entry.entry_id,
+        identifiers={("zha", f"{GROUP:04x}")},
+        name="Zone group",
+    )
+    entity_registry.async_get_or_create(
+        "light",
+        "zha",
+        f"light_zha_group_0x{GROUP:04x}",
+        suggested_object_id="zone_group",
+        config_entry=zha_entry,
+        device_id=device.id,
+    )
+    return device
+
+
+@pytest.fixture
+async def loaded(
+    hass: HomeAssistant, entry: MockConfigEntry, zha: None, group_device: dr.DeviceEntry
+) -> MockConfigEntry:
+    """Set up the entry with two palettes in the library."""
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    entry.runtime_data.async_update_palettes([palette("custom:a"), palette("custom:b")])
+    await hass.async_block_till_done()
     return entry
