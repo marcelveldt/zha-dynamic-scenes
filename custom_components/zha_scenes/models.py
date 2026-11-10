@@ -10,7 +10,7 @@ from typing import Any
 class PaletteSource(StrEnum):
     """Where a palette comes from."""
 
-    HUE = "hue"
+    BUILTIN = "builtin"
     CUSTOM = "custom"
 
 
@@ -79,13 +79,11 @@ class Palette:
     A dynamic scene palette.
 
     :param palette_id: Stable id, unique in the library.
-    :param name: Display name.
-    :param source: Hue import or custom.
+    :param name: Display name; built-in palettes show their translated name instead.
+    :param source: Built-in or custom.
     :param colors: Colours the lamps animate through, in order.
     :param speed: Animation speed 0..1.
     :param color_temperature: Colour temperature for lamps without colour.
-    :param group_name: Name of the Hue room or zone the scene came from.
-    :param lamps: IEEE addresses of the lamps in the imported Hue scene.
     """
 
     palette_id: str
@@ -94,13 +92,6 @@ class Palette:
     colors: list[PaletteColor]
     speed: float
     color_temperature: ColorTemperature | None = None
-    group_name: str | None = None
-    lamps: list[str] = field(default_factory=list)
-
-    @property
-    def label(self) -> str:
-        """Return the name with its origin, to tell equally named palettes apart."""
-        return f"{self.name} ({self.group_name})" if self.group_name else self.name
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON serializable dict."""
@@ -119,9 +110,6 @@ class Palette:
             color_temperature=(
                 ColorTemperature(**color_temperature) if color_temperature else None
             ),
-            group_name=data.get("group_name"),
-            # a library saved with per-lamp start states lists the lamps as `actions` keys
-            lamps=data.get("lamps", list(data.get("actions", {}))),
         )
 
 
@@ -133,14 +121,14 @@ class ZoneConfig:
     :param group_id: Zigbee group id of the ZHA group, None for a single light.
     :param entity_id: Entity registry id of the ZHA group light or of the single light.
     :param clusters: Lists of lamp IEEEs that share a start colour.
-    :param palettes: Ids of the palettes offered in the zone, None for the automatic choice.
+    :param palettes: Ids of the palettes offered in the zone.
     :param ieee: IEEE address of the single light, None for a group.
     """
 
     group_id: int | None
     entity_id: str
     clusters: list[list[str]] = field(default_factory=list)
-    palettes: list[str] | None = None
+    palettes: list[str] = field(default_factory=list)
     ieee: str | None = None
 
     @property
@@ -168,7 +156,7 @@ class ZoneConfig:
             group_id=None if group_id is None else int(group_id),
             entity_id=data["entity_id"],
             clusters=[list(cluster) for cluster in data.get("clusters", [])],
-            palettes=data.get("palettes"),
+            palettes=list(data.get("palettes", [])),
             ieee=data.get("ieee"),
         )
 

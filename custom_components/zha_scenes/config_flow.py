@@ -1,4 +1,4 @@
-"""Config and options flow for ZHA dynamic scenes."""
+"""Config and options flow for ZHA Scenes."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
@@ -29,22 +28,12 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
-    TextSelectorConfig,
-    TextSelectorType,
 )
 from homeassistant.util.color import color_RGB_to_xy, color_xy_to_RGB
 from homeassistant.util.ulid import ulid_now
 import probatio
 
-from .const import (
-    CONF_HUE_APP_KEY,
-    CONF_HUE_HOST,
-    CONF_ZONES,
-    DEFAULT_SPEED,
-    DOMAIN,
-    MIN_PALETTE_COLORS,
-)
-from .hue_import import HueAuthError, HueImportError, async_fetch_palettes
+from .const import CONF_ZONES, DEFAULT_SPEED, DOMAIN, MIN_PALETTE_COLORS
 from .models import Palette, PaletteColor, PaletteSource, ZoneConfig
 from .protocol import MAX_PALETTE_COLORS
 from .zigbee import (
@@ -56,9 +45,8 @@ from .zigbee import (
 )
 
 if TYPE_CHECKING:
-    from .manager import DynamicScenesManager
+    from .manager import ZhaScenesManager
 
-CONF_AUTOMATIC = "automatic"
 CONF_BRIGHTNESS = "brightness"
 CONF_CLUSTERS = "clusters"
 CONF_COLORS = "colors"
@@ -76,14 +64,6 @@ MIN_CLUSTER_LIGHTS = 2
 
 _HEX_COLOR = re.compile(r"#?([0-9a-fA-F]{6})")
 
-HUE_SCHEMA = probatio.Schema(
-    {
-        probatio.Required(CONF_HUE_HOST): TextSelector(),
-        probatio.Required(CONF_HUE_APP_KEY): TextSelector(
-            TextSelectorConfig(type=TextSelectorType.PASSWORD)
-        ),
-    }
-)
 PALETTE_SCHEMA = probatio.Schema(
     {
         probatio.Required(CONF_NAME): TextSelector(),
@@ -100,7 +80,7 @@ PALETTE_SCHEMA = probatio.Schema(
 )
 
 
-class DynamicScenesConfigFlow(ConfigFlow, domain=DOMAIN):
+class ZhaScenesConfigFlow(ConfigFlow, domain=DOMAIN):
     """Set up the integration; zones and palettes are managed in the options."""
 
     VERSION = 1
@@ -110,20 +90,18 @@ class DynamicScenesConfigFlow(ConfigFlow, domain=DOMAIN):
         if not async_zha_ready(self.hass):
             return self.async_abort(reason="zha_not_ready")
         if user_input is not None:
-            return self.async_create_entry(
-                title="ZHA dynamic scenes", data={}, options={CONF_ZONES: []}
-            )
+            return self.async_create_entry(title="ZHA Scenes", data={}, options={CONF_ZONES: []})
         return self.async_show_form(step_id="user")
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Return the options flow."""
-        return DynamicScenesOptionsFlow()
+        return ZhaScenesOptionsFlow()
 
 
-class DynamicScenesOptionsFlow(OptionsFlowWithReload):
-    """Import and edit palettes, configure zones and their clusters."""
+class ZhaScenesOptionsFlow(OptionsFlowWithReload):
+    """Edit custom palettes, configure zones and their clusters."""
 
     def __init__(self) -> None:
         """Initialize the flow."""
@@ -131,7 +109,6 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         self._zones: dict[str, ZoneConfig] = {}
         self._zone: ZoneConfig | None = None
         self._palette_id: str | None = None
-        self._imported = 0
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Show what can be changed."""
@@ -142,55 +119,13 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
             zone.zone_id: zone
             for zone in map(ZoneConfig.from_dict, self._options.get(CONF_ZONES, []))
         }
-        palettes = self._manager.palettes.values()
-        menu = ["import_hue", "add_palette"]
-        if any(palette.source is PaletteSource.CUSTOM for palette in palettes):
-            menu.append("edit_palette")
-        if palettes:
-            menu.append("remove_palettes")
+        menu = ["add_palette"]
+        if self._custom_palettes:
+            menu += ["edit_palette", "remove_palettes"]
         menu.append("add_zone")
         if self._zones:
             menu.append("edit_zone")
         return self.async_show_menu(step_id="init", menu_options=menu)
-
-    async def async_step_import_hue(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Import the dynamic scene palettes of a Hue bridge."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            session = async_get_clientsession(self.hass, verify_ssl=False)
-            try:
-                palettes = await async_fetch_palettes(
-                    session, user_input[CONF_HUE_HOST], user_input[CONF_HUE_APP_KEY]
-                )
-            except HueAuthError:
-                errors["base"] = "invalid_auth"
-            except HueImportError:
-                errors["base"] = "cannot_connect"
-            else:
-                self._manager.async_update_palettes(palettes)
-                self._options.update(user_input)
-                self._imported = len(palettes)
-                return await self.async_step_import_done()
-        return self.async_show_form(
-            step_id="import_hue",
-            data_schema=self.add_suggested_values_to_schema(
-                HUE_SCHEMA, user_input or self._options
-            ),
-            errors=errors,
-        )
-
-    async def async_step_import_done(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Report the import."""
-        if user_input is not None:
-            return self._async_save()
-        return self.async_show_form(
-            step_id="import_done",
-            description_placeholders={"count": str(self._imported)},
-        )
 
     async def async_step_add_palette(
         self, user_input: dict[str, Any] | None = None
@@ -205,15 +140,10 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         if user_input is not None:
             self._palette_id = user_input[CONF_PALETTE]
             return await self.async_step_palette()
-        custom = [
-            palette
-            for palette in self._manager.palettes.values()
-            if palette.source is PaletteSource.CUSTOM
-        ]
         return self.async_show_form(
             step_id="edit_palette",
             data_schema=probatio.Schema(
-                {probatio.Required(CONF_PALETTE): _palette_selector(custom)}
+                {probatio.Required(CONF_PALETTE): self._palette_selector(self._custom_palettes)}
             ),
         )
 
@@ -229,7 +159,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
     async def async_step_remove_palettes(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Remove palettes from the library."""
+        """Remove custom palettes from the library."""
         if user_input is not None:
             self._manager.async_remove_palettes(user_input[CONF_PALETTES])
             return self._async_save()
@@ -237,8 +167,8 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
             step_id="remove_palettes",
             data_schema=probatio.Schema(
                 {
-                    probatio.Required(CONF_PALETTES): _palette_selector(
-                        self._manager.palettes.values(), multiple=True
+                    probatio.Required(CONF_PALETTES): self._palette_selector(
+                        self._custom_palettes, multiple=True
                     )
                 }
             ),
@@ -270,7 +200,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
                 group_id=groups.get(entity_id), entity_id=entry.id, ieee=lamps.get(entity_id)
             )
             self._zones[self._zone.zone_id] = self._zone
-            return await self.async_step_zone()
+            return await self.async_step_zone_palettes()
         return self.async_show_form(
             step_id="add_zone",
             data_schema=probatio.Schema(
@@ -329,24 +259,29 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
     async def async_step_zone_palettes(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose the palettes a zone offers."""
+        """Choose the palettes a zone offers, at least one."""
         zone = self._current_zone
+        errors: dict[str, str] = {}
         if user_input is not None:
-            zone.palettes = None if user_input[CONF_AUTOMATIC] else user_input[CONF_PALETTES]
-            return await self.async_step_zone()
-        offered = [palette.palette_id for palette in self._manager.zone_palettes(zone)]
+            if user_input[CONF_PALETTES]:
+                zone.palettes = user_input[CONF_PALETTES]
+                return await self.async_step_zone()
+            errors[CONF_PALETTES] = "no_palettes"
+        palettes = self._manager.palettes
+        schema = probatio.Schema(
+            {
+                probatio.Required(CONF_PALETTES): self._palette_selector(
+                    palettes.values(), multiple=True
+                )
+            }
+        )
+        chosen = [palette_id for palette_id in zone.palettes if palette_id in palettes]
         return self.async_show_form(
             step_id="zone_palettes",
-            data_schema=probatio.Schema(
-                {
-                    probatio.Required(CONF_AUTOMATIC, default=zone.palettes is None): (
-                        BooleanSelector()
-                    ),
-                    probatio.Optional(CONF_PALETTES, default=offered): _palette_selector(
-                        self._manager.palettes.values(), multiple=True
-                    ),
-                }
+            data_schema=self.add_suggested_values_to_schema(
+                schema, user_input or {CONF_PALETTES: chosen}
             ),
+            errors=errors,
         )
 
     async def async_step_add_cluster(
@@ -421,9 +356,9 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         return self._async_save()
 
     @property
-    def _manager(self) -> DynamicScenesManager:
+    def _manager(self) -> ZhaScenesManager:
         """Return the running manager."""
-        manager: DynamicScenesManager = self.config_entry.runtime_data
+        manager: ZhaScenesManager = self.config_entry.runtime_data
         return manager
 
     @property
@@ -431,6 +366,15 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         """Return the zone being edited."""
         assert self._zone is not None
         return self._zone
+
+    @property
+    def _custom_palettes(self) -> list[Palette]:
+        """Return the custom palettes of the library."""
+        return [
+            palette
+            for palette in self._manager.palettes.values()
+            if palette.source is PaletteSource.CUSTOM
+        ]
 
     @callback
     def _async_palette_form(
@@ -514,14 +458,21 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
             for lamp in lamps
         }
 
-
-def _palette_selector(palettes: Iterable[Palette], *, multiple: bool = False) -> SelectSelector:
-    """Return a selector of palettes by label."""
-    options = [
-        SelectOptionDict(value=palette.palette_id, label=palette.label)
-        for palette in sorted(palettes, key=lambda palette: palette.label.casefold())
-    ]
-    return SelectSelector(SelectSelectorConfig(options=options, multiple=multiple))
+    @callback
+    def _palette_selector(
+        self, palettes: Iterable[Palette], *, multiple: bool = False
+    ) -> SelectSelector:
+        """Return a selector of palettes by name."""
+        options = sorted(
+            (
+                SelectOptionDict(
+                    value=palette.palette_id, label=self._manager.palette_name(palette)
+                )
+                for palette in palettes
+            ),
+            key=lambda option: option["label"].casefold(),
+        )
+        return SelectSelector(SelectSelectorConfig(options=options, multiple=multiple))
 
 
 def _parse_colors(text: str) -> list[tuple[float, float]]:

@@ -6,21 +6,26 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
-from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_dynamic_scenes.models import ZoneConfig
-from custom_components.zha_dynamic_scenes.protocol import (
+from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
+from custom_components.zha_scenes.models import ZoneConfig
+from custom_components.zha_scenes.protocol import (
     CMD_ENHANCED_ADD_SCENE,
     SceneContent,
     add_scene_payload,
     dynamic_palette_payload,
 )
 
-from .common import BLUE, GREEN, RED, FakeTransport, lamp, palette
+from .common import BLUE, GREEN, RED, FakeTransport, lamp
 from .conftest import GROUP
 
 IEEE = lamp(1).ieee
 COLORS = [RED.xy, GREEN.xy, BLUE.xy]
-GROUP_ZONE = {"group_id": GROUP, "entity_id": "light.zone_group", "clusters": [], "palettes": None}
+GROUP_ZONE = {
+    "group_id": GROUP,
+    "entity_id": "light.zone_group",
+    "clusters": [],
+    "palettes": ["custom:a", "custom:b"],
+}
 
 
 @pytest.fixture
@@ -82,30 +87,6 @@ async def test_entities_on_the_lamp_device(
         f"{IEEE}_custom:a": ("scene.lamp_01_custom_a", lamp_light.device_id),
         f"{IEEE}_custom:b": ("scene.lamp_01_custom_b", lamp_light.device_id),
     }
-
-
-async def test_automatic_palettes_match_the_lamp(
-    hass: HomeAssistant, loaded: MockConfigEntry
-) -> None:
-    manager = loaded.runtime_data
-    room = [lamp(n).ieee for n in (1, 2)]
-    manager.async_update_palettes(
-        [
-            palette("hue:room", group_name="Room", lamps=room),
-            palette("hue:strip", group_name="Strip", lamps=[IEEE]),
-        ]
-    )
-    group_zone, light_zone = manager.zones.values()
-    assert [p.palette_id for p in manager.zone_palettes(group_zone)] == [
-        "custom:a",
-        "custom:b",
-        "hue:room",
-    ]
-    assert [p.palette_id for p in manager.zone_palettes(light_zone)] == [
-        "custom:a",
-        "custom:b",
-        "hue:strip",
-    ]
 
 
 async def test_scene_starts_the_palette_with_a_unicast(

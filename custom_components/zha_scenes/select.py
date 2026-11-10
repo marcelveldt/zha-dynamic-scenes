@@ -10,9 +10,9 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import DynamicScenesConfigEntry
+from . import ZhaScenesConfigEntry
 from .const import SIGNAL_LIBRARY_UPDATED, SIGNAL_ZONE_ACTIVATED
-from .manager import DynamicScenesManager
+from .manager import ZhaScenesManager
 from .models import ZoneConfig
 
 PARALLEL_UPDATES = 0
@@ -20,7 +20,7 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: DynamicScenesConfigEntry,
+    entry: ZhaScenesConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a select entity per zone and remove those of deleted zones."""
@@ -44,9 +44,7 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
     _attr_translation_key = "dynamic_scene"
     _attr_should_poll = False
 
-    def __init__(
-        self, hass: HomeAssistant, manager: DynamicScenesManager, zone: ZoneConfig
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, manager: ZhaScenesManager, zone: ZoneConfig) -> None:
         """Initialize the entity on the device of the zone's ZHA group or light."""
         self._manager = manager
         self._zone = zone
@@ -105,5 +103,7 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
     def _refresh_options(self) -> None:
         """Read the palettes the zone offers."""
         palettes = self._manager.zone_palettes(self._zone)
-        self._palette_ids = {palette.label: palette.palette_id for palette in palettes}
+        self._palette_ids = {
+            self._manager.palette_name(palette): palette.palette_id for palette in palettes
+        }
         self._attr_options = list(self._palette_ids)

@@ -14,9 +14,9 @@ from zigpy.types import EUI64
 from zigpy.zcl import foundation
 from zigpy.zcl.clusters.general import Scenes
 
-from custom_components.zha_dynamic_scenes.engine import TransportError
-from custom_components.zha_dynamic_scenes.models import ZoneConfig
-from custom_components.zha_dynamic_scenes.protocol import (
+from custom_components.zha_scenes.engine import TransportError
+from custom_components.zha_scenes.models import ZoneConfig
+from custom_components.zha_scenes.protocol import (
     ATTR_HUE_FEATURES,
     CLUSTER_HUE_EFFECTS,
     CLUSTER_SCENES,
@@ -24,10 +24,9 @@ from custom_components.zha_dynamic_scenes.protocol import (
     CMD_DYNAMIC_PALETTE,
     MANUFACTURER_SIGNIFY,
 )
-from custom_components.zha_dynamic_scenes.zigbee import (
+from custom_components.zha_scenes.zigbee import (
     ZhaSceneTransport,
     async_device_lights,
-    async_zone_ieees,
     async_zone_lamps,
 )
 
@@ -166,8 +165,6 @@ async def test_zone_lamps(hass: HomeAssistant, light_zone: ZoneConfig) -> None:
     # a dynamic lamp: a Signify colour lamp with the Hue effects cluster
     assert async_zone_lamps(hass, group_zone) == [lamp(1)]
     assert async_zone_lamps(hass, light_zone) == [lamp(1)]
-    assert async_zone_ieees(hass, group_zone) == {lamp(1).ieee}
-    assert async_zone_ieees(hass, light_zone) == {lamp(1).ieee}
 
 
 async def test_unavailable_single_light_has_no_lamps(

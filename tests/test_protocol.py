@@ -2,7 +2,7 @@
 
 import pytest
 
-from custom_components.zha_dynamic_scenes.protocol import (
+from custom_components.zha_scenes.protocol import (
     CMD_ADD_HUE_SCENE,
     MANUFACTURER_SIGNIFY,
     GradientSceneContent,

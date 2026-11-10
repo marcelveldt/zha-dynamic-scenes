@@ -12,17 +12,17 @@ from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import DynamicScenesConfigEntry
+from . import ZhaScenesConfigEntry
 from .const import ATTR_SPEED, SIGNAL_LIBRARY_UPDATED, SIGNAL_ZONE_ACTIVATED
-from .manager import DynamicScenesManager
-from .models import Palette, ZoneConfig
+from .manager import ZhaScenesManager
+from .models import Palette, PaletteSource, ZoneConfig
 
 PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: DynamicScenesConfigEntry,
+    entry: ZhaScenesConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a scene per palette a zone offers and keep them in line with the library."""
@@ -71,7 +71,7 @@ class ZonePaletteScene(BaseScene):
     def __init__(
         self,
         hass: HomeAssistant,
-        manager: DynamicScenesManager,
+        manager: ZhaScenesManager,
         zone: ZoneConfig,
         palette: Palette,
     ) -> None:
@@ -79,12 +79,15 @@ class ZonePaletteScene(BaseScene):
         self._manager = manager
         self._zone_id = zone.zone_id
         self._palette_id = palette.palette_id
-        self._attr_name = palette.name
+        if palette.source is PaletteSource.BUILTIN:
+            self._attr_translation_key = palette.palette_id
+        else:
+            self._attr_name = palette.name
         self._attr_unique_id = _unique_id(zone, palette)
         self.device_entry = async_entity_id_to_device(hass, zone.entity_id)
 
     async def async_added_to_hass(self) -> None:
-        """Follow renames of the palette and starts of the zone."""
+        """Follow renames of a custom palette and starts of the zone."""
         await super().async_added_to_hass()
         self.async_on_remove(
             async_dispatcher_connect(
@@ -124,9 +127,10 @@ class ZonePaletteScene(BaseScene):
 
     @callback
     def _handle_library_updated(self) -> None:
-        """Show the palette's current name."""
+        """Show the current name of a custom palette."""
         # a removed palette's scene is being removed by the platform
-        if palette := self._manager.palettes.get(self._palette_id):
+        palette = self._manager.palettes.get(self._palette_id)
+        if palette is not None and palette.source is PaletteSource.CUSTOM:
             self._attr_name = palette.name
             self.async_write_ha_state()
 

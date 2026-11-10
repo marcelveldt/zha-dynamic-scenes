@@ -1,7 +1,7 @@
 activate:
   target:
     entity:
-      integration: zha_dynamic_scenes
+      integration: zha_scenes
       domain: scene
   fields:
     speed:
@@ -29,5 +29,5 @@ activate:
 rewrite_scenes:
   target:
     entity:
-      integration: zha_dynamic_scenes
+      integration: zha_scenes
       domain: select

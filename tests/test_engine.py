@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from custom_components.zha_dynamic_scenes.engine import (
+from custom_components.zha_scenes.engine import (
     FIRST_SCENE_ID,
     LAST_SCENE_ID,
     LampTarget,
@@ -14,13 +14,13 @@ from custom_components.zha_dynamic_scenes.engine import (
     TransportError,
     assign_targets,
 )
-from custom_components.zha_dynamic_scenes.models import (
+from custom_components.zha_scenes.models import (
     Gradient,
     GradientMode,
     PaletteColor,
     ZoneConfig,
 )
-from custom_components.zha_dynamic_scenes.protocol import (
+from custom_components.zha_scenes.protocol import (
     CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
     CMD_REMOVE_SCENE,
@@ -88,8 +88,7 @@ def test_assign_ignores_unknown_and_duplicate_cluster_members() -> None:
 def test_assign_clusters_get_the_palette_colours_in_turn() -> None:
     lamps = [lamp(n) for n in range(1, 6)]
     clusters = [[lamp(1).ieee, lamp(2).ieee], [lamp(3).ieee, lamp(4).ieee]]
-    # the lamps of the Hue scene do not change the start colours
-    targets = assign_targets(lamps, clusters, palette("hue:x", lamps=[lamp(3).ieee]))
+    targets = assign_targets(lamps, clusters, palette())
     assert [targets[lamp(n).ieee].xy for n in range(1, 6)] == [
         RED.xy,
         RED.xy,

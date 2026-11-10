@@ -1,7 +1,7 @@
 """Helpers shared by the tests."""
 
-from custom_components.zha_dynamic_scenes.engine import TransportError
-from custom_components.zha_dynamic_scenes.models import (
+from custom_components.zha_scenes.engine import TransportError
+from custom_components.zha_scenes.models import (
     ColorTemperature,
     Gradient,
     Lamp,
@@ -10,7 +10,7 @@ from custom_components.zha_dynamic_scenes.models import (
     PaletteColor,
     PaletteSource,
 )
-from custom_components.zha_dynamic_scenes.protocol import MANUFACTURER_SIGNIFY, STATUS_SUCCESS
+from custom_components.zha_scenes.protocol import MANUFACTURER_SIGNIFY, STATUS_SUCCESS
 
 RED = PaletteColor(0.68, 0.31, 80.0)
 GREEN = PaletteColor(0.17, 0.70, 70.0)
@@ -33,23 +33,15 @@ def lamp(n: int, kind: LampKind = LampKind.DYNAMIC) -> Lamp:
     )
 
 
-def palette(
-    palette_id: str = "custom:a",
-    *,
-    name: str | None = None,
-    lamps: list[str] | None = None,
-    group_name: str | None = None,
-) -> Palette:
-    """Return a three colour palette, named like its id unless a name is given."""
+def palette(palette_id: str = "custom:a", *, name: str | None = None) -> Palette:
+    """Return a three colour custom palette, named like its id unless a name is given."""
     return Palette(
         palette_id=palette_id,
         name=name or palette_id,
-        source=PaletteSource.HUE if lamps is not None else PaletteSource.CUSTOM,
+        source=PaletteSource.CUSTOM,
         colors=[RED, GREEN, BLUE],
         speed=0.5,
         color_temperature=ColorTemperature(mirek=400, brightness=50.0),
-        group_name=group_name,
-        lamps=lamps or [],
     )
 
 

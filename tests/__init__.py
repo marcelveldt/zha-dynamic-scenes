@@ -1,1 +1,1 @@
-"""Tests for ZHA dynamic scenes."""
+"""Tests for ZHA Scenes."""

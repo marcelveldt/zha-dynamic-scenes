@@ -11,16 +11,16 @@ import probatio
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
-from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_dynamic_scenes.engine import TransportError
-from custom_components.zha_dynamic_scenes.models import Palette
-from custom_components.zha_dynamic_scenes.protocol import dynamic_palette_payload
+from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
+from custom_components.zha_scenes.engine import TransportError
+from custom_components.zha_scenes.protocol import dynamic_palette_payload
 
 from .common import BLUE, GREEN, RED, FakeTransport, palette
 from .conftest import GROUP
 
 SCENE_A = "scene.zone_group_custom_a"
 SCENE_B = "scene.zone_group_custom_b"
+SCENE_BLOSSOM = "scene.zone_group_blossom"
 SELECT = "select.zone_group_dynamic_scene"
 COLORS = [RED.xy, GREEN.xy, BLUE.xy]
 
@@ -31,8 +31,7 @@ async def test_scene_per_offered_palette(
     group_device: dr.DeviceEntry,
     entity_registry: er.EntityRegistry,
 ) -> None:
-    loaded.runtime_data.async_update_palettes([_blossom()])
-    await hass.async_block_till_done()
+    await _offer(hass, loaded, ["custom:a", "custom:b", "blossom"])
 
     scenes = {
         entity.entity_id: (entity.unique_id, entity.device_id)
@@ -42,9 +41,19 @@ async def test_scene_per_offered_palette(
     assert scenes == {
         SCENE_A: ("dd92_custom:a", group_device.id),
         SCENE_B: ("dd92_custom:b", group_device.id),
-        "scene.zone_group_blossom": ("dd92_custom:c", group_device.id),
+        SCENE_BLOSSOM: ("dd92_blossom", group_device.id),
     }
-    assert hass.states.get("scene.zone_group_blossom").name == "Zone group Blossom"
+    assert hass.states.get(SCENE_BLOSSOM).name == "Zone group Blossom"
+
+
+async def test_builtin_palette_names_are_translated(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    hass.config.language = "nl"
+    await _offer(hass, loaded, ["custom:a", "blossom"])
+
+    assert hass.states.get("scene.zone_group_bloesem").name == "Zone group Bloesem"
+    assert hass.states.get(SELECT).attributes["options"] == ["Bloesem", "custom:a"]
 
 
 async def test_turn_on_starts_the_palette(
@@ -95,13 +104,12 @@ async def test_select_shows_the_palette_started_last(
     hass: HomeAssistant, loaded: MockConfigEntry
 ) -> None:
     async_mock_service(hass, "light", "turn_on")
-    loaded.runtime_data.async_update_palettes([_blossom()])
-    await hass.async_block_till_done()
+    await _offer(hass, loaded, ["custom:a", "blossom"])
 
     await hass.services.async_call(
-        "scene", "turn_on", {ATTR_ENTITY_ID: "scene.zone_group_blossom"}, blocking=True
+        "scene", "turn_on", {ATTR_ENTITY_ID: SCENE_BLOSSOM}, blocking=True
     )
-    assert hass.states.get(SELECT).state == "Blossom (Living room)"
+    assert hass.states.get(SELECT).state == "Blossom"
 
     await hass.services.async_call(DOMAIN, "activate", {ATTR_ENTITY_ID: SCENE_A}, blocking=True)
     assert hass.states.get(SELECT).state == "custom:a"
@@ -153,14 +161,13 @@ async def test_scenes_follow_the_library(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     manager = loaded.runtime_data
-    manager.async_update_palettes([palette("custom:b", name="Renamed"), _blossom()])
+    manager.async_update_palettes([palette("custom:b", name="Renamed")])
     manager.async_remove_palettes(["custom:a"])
     await hass.async_block_till_done()
 
     assert hass.states.get(SCENE_A) is None
     assert entity_registry.async_get(SCENE_A) is None
     assert hass.states.get(SCENE_B).name == "Zone group Renamed"
-    assert hass.states.get("scene.zone_group_blossom") is not None
     assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
     manager.async_update_palettes([palette("custom:a")])
@@ -172,10 +179,7 @@ async def test_setup_removes_scenes_no_longer_offered(
     hass: HomeAssistant, loaded: MockConfigEntry, entity_registry: er.EntityRegistry
 ) -> None:
     kept = {entity_id: entity_registry.async_get(entity_id).id for entity_id in (SCENE_A, SELECT)}
-    zone = {**loaded.options[CONF_ZONES][0], "palettes": ["custom:a"]}
-    hass.config_entries.async_update_entry(loaded, options={CONF_ZONES: [zone]})
-    assert await hass.config_entries.async_reload(loaded.entry_id)
-    await hass.async_block_till_done()
+    await _offer(hass, loaded, ["custom:a"])
 
     assert entity_registry.async_get(SCENE_B) is None
     # neither platform removed the other's entities
@@ -184,6 +188,9 @@ async def test_setup_removes_scenes_no_longer_offered(
     } == kept
 
 
-def _blossom() -> Palette:
-    """Return a palette with the Hue room in its label."""
-    return palette("custom:c", name="Blossom", group_name="Living room")
+async def _offer(hass: HomeAssistant, entry: MockConfigEntry, palettes: list[str]) -> None:
+    """Let the zone offer these palettes, as the options flow does."""
+    zone = {**entry.options[CONF_ZONES][0], "palettes": palettes}
+    hass.config_entries.async_update_entry(entry, options={CONF_ZONES: [zone]})
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()

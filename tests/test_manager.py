@@ -1,4 +1,4 @@
-"""Activation of palettes on zones and the default palette choice."""
+"""Activation of palettes on zones and the palette library."""
 
 import asyncio
 
@@ -8,13 +8,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
-from custom_components.zha_dynamic_scenes.const import DOMAIN, SIGNAL_ZONE_ACTIVATED
-from custom_components.zha_dynamic_scenes.manager import DynamicScenesManager, default_palettes
-from custom_components.zha_dynamic_scenes.models import (
-    GradientMode,
-    PaletteSource,
-)
-from custom_components.zha_dynamic_scenes.protocol import (
+from custom_components.zha_scenes.const import DOMAIN, SIGNAL_ZONE_ACTIVATED
+from custom_components.zha_scenes.manager import ZhaScenesManager
+from custom_components.zha_scenes.models import GradientMode, PaletteSource
+from custom_components.zha_scenes.protocol import (
     CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
     GradientSceneContent,
@@ -32,7 +29,7 @@ from .conftest import GROUP, ZONE_ID
 async def test_activate_mixed_zone(
     hass: HomeAssistant, entry: MockConfigEntry, transport: FakeTransport
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette()])
     calls = async_mock_service(hass, "light", "turn_on")
 
@@ -70,12 +67,12 @@ async def test_activate_mixed_zone(
 async def test_activate_gradient_lamp(
     hass: HomeAssistant, entry: MockConfigEntry, transport: FakeTransport, hass_storage: dict
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
-    manager.async_update_palettes([palette("hue:a", lamps=[lamp(1).ieee])])
+    manager = await ZhaScenesManager.async_load(hass, entry)
+    manager.async_update_palettes([palette()])
     calls = async_mock_service(hass, "light", "turn_on")
     transport.features[lamp(1).ieee] = FEATURES_GRADIENT
 
-    await manager.async_activate(ZONE_ID, "hue:a")
+    await manager.async_activate(ZONE_ID, "custom:a")
 
     # the gradient lamp stores the palette as its gradient
     gradient = GradientSceneContent.from_gradient(
@@ -104,7 +101,7 @@ async def test_activate_gradient_lamp(
 async def test_failed_gradient_lamp_gets_its_first_gradient_point(
     hass: HomeAssistant, entry: MockConfigEntry, transport: FakeTransport
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette()])
     calls = async_mock_service(hass, "light", "turn_on")
     transport.features[lamp(2).ieee] = FEATURES_GRADIENT
@@ -124,7 +121,7 @@ async def test_failed_gradient_lamp_gets_its_first_gradient_point(
 async def test_activate_overrides_and_failed_lamp_fallback(
     hass: HomeAssistant, entry: MockConfigEntry, transport: FakeTransport
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette()])
     calls = async_mock_service(hass, "light", "turn_on")
     transport.answers[lamp(2).ieee] = [None]
@@ -161,7 +158,7 @@ async def test_failing_light_does_not_stop_the_activation(
     transport: FakeTransport,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette()])
 
     async def turn_on(call: ServiceCall) -> None:
@@ -175,24 +172,10 @@ async def test_failing_light_does_not_stop_the_activation(
 
 
 @pytest.mark.usefixtures("zha")
-async def test_reimport_keeps_lamps_the_bridge_lost(
-    hass: HomeAssistant, entry: MockConfigEntry
-) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
-    manager.async_update_palettes(
-        [palette("hue:a", group_name="Room", lamps=[lamp(2).ieee, lamp(1).ieee])]
-    )
-    manager.async_update_palettes([palette("hue:a", lamps=[lamp(3).ieee, lamp(2).ieee])])
-    merged = manager.palettes["hue:a"]
-    assert merged.lamps == [lamp(1).ieee, lamp(2).ieee, lamp(3).ieee]
-    assert merged.group_name == "Room"
-
-
-@pytest.mark.usefixtures("zha")
 async def test_activations_of_a_zone_run_one_after_another(
     hass: HomeAssistant, entry: MockConfigEntry
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette("custom:a"), palette("custom:b")])
     started: list[str] = []
     async_dispatcher_connect(
@@ -228,40 +211,43 @@ async def test_activations_of_a_zone_run_one_after_another(
 async def test_library_and_cache_are_stored(
     hass: HomeAssistant, entry: MockConfigEntry, hass_storage: dict
 ) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette()])
     async_mock_service(hass, "light", "turn_on")
     await manager.async_activate(ZONE_ID, "custom:a")
     await manager.async_save()
 
     data = hass_storage[DOMAIN]["data"]
+    # the built-in palettes are not stored
+    assert manager.palettes["rolling_hills"].source is PaletteSource.BUILTIN
     assert [p["palette_id"] for p in data["palettes"]] == ["custom:a"]
     assert data["slots"][str(GROUP)]["custom:a"]["scene_id"] == 0x80
     assert set(data["scenes"]) == {lamp(1).ieee, lamp(2).ieee}
 
-    reloaded = await DynamicScenesManager.async_load(hass, entry)
+    reloaded = await ZhaScenesManager.async_load(hass, entry)
     assert reloaded.palettes == manager.palettes
-
-
-def test_default_palettes_pick_best_matching_hue_group() -> None:
-    ieees = [lamp(n).ieee for n in range(1, 6)]
-    room = [palette(f"hue:room{n}", group_name="Room", lamps=ieees) for n in range(2)]
-    zone = palette("hue:zone", group_name="Zone", lamps=ieees[:2])
-    other = palette("hue:other", group_name="Other", lamps=["aa"])
-    custom = palette("custom:x")
-    library = [*room, zone, other, custom]
-    assert custom.source is PaletteSource.CUSTOM
-
-    assert default_palettes(library, set(ieees[:2])) == [zone, custom]
-    assert default_palettes(library, set(ieees)) == [*room, custom]
-    assert default_palettes(library, {"unknown"}) == [custom]
 
 
 @pytest.mark.usefixtures("zha")
 async def test_zone_palettes(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager = await ZhaScenesManager.async_load(hass, entry)
     zone = manager.zones[ZONE_ID]
-    manager.async_update_palettes([palette("custom:b"), palette("hue:a", lamps=[lamp(1).ieee])])
-    assert [p.palette_id for p in manager.zone_palettes(zone)] == ["custom:b", "hue:a"]
-    zone.palettes = ["hue:a", "gone"]
-    assert [p.palette_id for p in manager.zone_palettes(zone)] == ["hue:a"]
+    manager.async_update_palettes([palette("custom:a", name="apple"), palette("custom:b")])
+    zone.palettes = ["custom:b", "rolling_hills", "gone", "custom:a"]
+    # sorted by name; palettes no longer in the library are left out
+    assert [p.palette_id for p in manager.zone_palettes(zone)] == [
+        "custom:a",
+        "custom:b",
+        "rolling_hills",
+    ]
+
+
+@pytest.mark.usefixtures("zha")
+async def test_palette_names_follow_the_language(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    hass.config.language = "nl"
+    manager = await ZhaScenesManager.async_load(hass, entry)
+    manager.async_update_palettes([palette(name="Mine")])
+    assert manager.palette_name(manager.palettes["rolling_hills"]) == "Glooiende heuvels"
+    assert manager.palette_name(manager.palettes["custom:a"]) == "Mine"

@@ -14,29 +14,12 @@
     "step": {
       "init": {
         "menu_options": {
-          "import_hue": "Import palettes from a Hue bridge",
           "add_palette": "Add a custom palette",
           "edit_palette": "Edit a custom palette",
-          "remove_palettes": "Remove palettes",
+          "remove_palettes": "Remove custom palettes",
           "add_zone": "Add a zone",
           "edit_zone": "Edit a zone"
         }
-      },
-      "import_hue": {
-        "title": "Import from a Hue bridge",
-        "description": "Reads the dynamic scenes of the bridge. Nothing is changed on the bridge. Import before moving lamps to ZHA: each palette then knows the lamps of its scene, so zones offer the right palettes.",
-        "data": {
-          "hue_host": "Host",
-          "hue_app_key": "Application key"
-        },
-        "data_description": {
-          "hue_host": "Host name or IP address of the bridge.",
-          "hue_app_key": "A CLIP v2 application key of the bridge, for example the one the Hue integration uses."
-        }
-      },
-      "import_done": {
-        "title": "Import finished",
-        "description": "Imported or updated {count} palettes."
       },
       "add_palette": {
         "title": "Add a custom palette",
@@ -72,7 +55,7 @@
         }
       },
       "remove_palettes": {
-        "title": "Remove palettes",
+        "title": "Remove custom palettes",
         "data": {
           "palettes": "Palettes"
         }
@@ -106,12 +89,9 @@
       },
       "zone_palettes": {
         "title": "Palettes of the zone",
+        "description": "The zone offers each chosen palette as a scene.",
         "data": {
-          "automatic": "Choose automatically",
           "palettes": "Palettes"
-        },
-        "data_description": {
-          "automatic": "Offer the imported palettes of the Hue room or zone with the same lamps, and all custom palettes."
         }
       },
       "add_cluster": {
@@ -129,10 +109,9 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot read the Hue bridge.",
-      "invalid_auth": "The bridge rejected the application key.",
       "invalid_colors": "Enter 2 to 9 colours as hex RGB, for example #ff8800.",
-      "cluster_too_small": "A cluster needs at least two lights."
+      "cluster_too_small": "A cluster needs at least two lights.",
+      "no_palettes": "Choose at least one palette."
     },
     "abort": {
       "not_loaded": "The integration is not running.",
@@ -140,6 +119,140 @@
     }
   },
   "entity": {
+    "scene": {
+      "amber_bloom": {
+        "name": "Amber bloom"
+      },
+      "arise": {
+        "name": "Arise"
+      },
+      "autumn_gold": {
+        "name": "Autumn gold"
+      },
+      "babys_breath": {
+        "name": "Baby's breath"
+      },
+      "blossom": {
+        "name": "Blossom"
+      },
+      "blue_planet": {
+        "name": "Blue planet"
+      },
+      "cancun": {
+        "name": "Cancun"
+      },
+      "crocus": {
+        "name": "Crocus"
+      },
+      "dreamy_dusk": {
+        "name": "Dreamy dusk"
+      },
+      "emerald_isle": {
+        "name": "Emerald isle"
+      },
+      "forest_adventure": {
+        "name": "Forest adventure"
+      },
+      "golden_pond": {
+        "name": "Golden pond"
+      },
+      "ibiza": {
+        "name": "Ibiza"
+      },
+      "juicy_watermelon": {
+        "name": "Juicy watermelon"
+      },
+      "lake_mist": {
+        "name": "Lake mist"
+      },
+      "lily": {
+        "name": "Lily"
+      },
+      "magneto": {
+        "name": "Magneto"
+      },
+      "malibu_pink": {
+        "name": "Malibu pink"
+      },
+      "miami": {
+        "name": "Miami"
+      },
+      "misty_ridge": {
+        "name": "Misty ridge"
+      },
+      "moonlight": {
+        "name": "Moonlight"
+      },
+      "nebula": {
+        "name": "Nebula"
+      },
+      "nighttime": {
+        "name": "Nighttime"
+      },
+      "ocean_dawn": {
+        "name": "Ocean dawn"
+      },
+      "orange_fields": {
+        "name": "Orange fields"
+      },
+      "palm_beach": {
+        "name": "Palm Beach"
+      },
+      "pandemonium": {
+        "name": "Pandemonium"
+      },
+      "pensive": {
+        "name": "Pensive"
+      },
+      "precious": {
+        "name": "Precious"
+      },
+      "rolling_hills": {
+        "name": "Rolling hills"
+      },
+      "ruby_glow": {
+        "name": "Ruby glow"
+      },
+      "santorini": {
+        "name": "Santorini"
+      },
+      "savanna_sunset": {
+        "name": "Savanna sunset"
+      },
+      "shine": {
+        "name": "Shine"
+      },
+      "silverstone": {
+        "name": "Silverstone"
+      },
+      "sleepy": {
+        "name": "Sleepy"
+      },
+      "soho": {
+        "name": "Soho"
+      },
+      "spring_lake": {
+        "name": "Spring lake"
+      },
+      "starlight": {
+        "name": "Starlight"
+      },
+      "storybook": {
+        "name": "Storybook"
+      },
+      "sundown": {
+        "name": "Sundown"
+      },
+      "tokyo": {
+        "name": "Tokyo"
+      },
+      "unwind": {
+        "name": "Unwind"
+      },
+      "vapor_wave": {
+        "name": "Vapor wave"
+      }
+    },
     "select": {
       "dynamic_scene": {
         "name": "Dynamic scene"
