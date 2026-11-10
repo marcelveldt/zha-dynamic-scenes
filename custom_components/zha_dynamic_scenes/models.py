@@ -72,41 +72,6 @@ class Gradient:
     points: tuple[tuple[float, float], ...]
     mode: GradientMode = GradientMode.INTERPOLATED_PALETTE
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Gradient:
-        """Create from the stored dict."""
-        return cls(points=tuple((x, y) for x, y in data["points"]), mode=GradientMode(data["mode"]))
-
-
-@dataclass(frozen=True, slots=True)
-class LightAction:
-    """
-    State a Hue scene sets on one lamp.
-
-    :param xy: Colour, the first gradient point for a gradient, None when the lamp is set
-        to a colour temperature.
-    :param mirek: Colour temperature, None when the lamp is set to a colour.
-    :param brightness: Brightness in percent, None when the scene keeps it.
-    :param gradient: Gradient of a gradient lamp.
-    """
-
-    xy: tuple[float, float] | None = None
-    mirek: int | None = None
-    brightness: float | None = None
-    gradient: Gradient | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> LightAction:
-        """Create from the stored dict."""
-        xy = data.get("xy")
-        gradient = data.get("gradient")
-        return cls(
-            xy=(xy[0], xy[1]) if xy else None,
-            mirek=data.get("mirek"),
-            brightness=data.get("brightness"),
-            gradient=Gradient.from_dict(gradient) if gradient else None,
-        )
-
 
 @dataclass(slots=True)
 class Palette:
@@ -120,7 +85,7 @@ class Palette:
     :param speed: Animation speed 0..1.
     :param color_temperature: Colour temperature for lamps without colour.
     :param group_name: Name of the Hue room or zone the scene came from.
-    :param actions: Per-lamp start states of an imported Hue scene, keyed by IEEE.
+    :param lamps: IEEE addresses of the lamps in the imported Hue scene.
     """
 
     palette_id: str
@@ -130,7 +95,7 @@ class Palette:
     speed: float
     color_temperature: ColorTemperature | None = None
     group_name: str | None = None
-    actions: dict[str, LightAction] = field(default_factory=dict)
+    lamps: list[str] = field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -155,10 +120,8 @@ class Palette:
                 ColorTemperature(**color_temperature) if color_temperature else None
             ),
             group_name=data.get("group_name"),
-            actions={
-                ieee: LightAction.from_dict(action)
-                for ieee, action in data.get("actions", {}).items()
-            },
+            # a library saved with per-lamp start states lists the lamps as `actions` keys
+            lamps=data.get("lamps", list(data.get("actions", {}))),
         )
 
 

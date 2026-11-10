@@ -185,12 +185,12 @@ class DynamicScenesManager:
         """
         Add palettes to the library or replace those with the same id.
 
-        A replaced palette keeps the start states of lamps the new one does not list: a
-        lamp that moved from the Hue bridge to ZHA is gone from a later bridge import.
+        A replaced palette keeps the lamps the new one does not list: a lamp that moved
+        from the Hue bridge to ZHA is gone from a later bridge import.
         """
         for palette in palettes:
             if old := self.palettes.get(palette.palette_id):
-                palette.actions = {**old.actions, **palette.actions}
+                palette.lamps = sorted({*old.lamps, *palette.lamps})
                 palette.group_name = palette.group_name or old.group_name
             self.palettes[palette.palette_id] = palette
         self._library_updated()
@@ -273,7 +273,7 @@ def default_palettes(palettes: Iterable[Palette], ieees: set[str]) -> list[Palet
     hue_groups: defaultdict[str | None, set[str]] = defaultdict(set)
     for palette in palettes:
         if palette.source is PaletteSource.HUE:
-            hue_groups[palette.group_name].update(palette.actions)
+            hue_groups[palette.group_name].update(palette.lamps)
     scores = {
         group: len(members & ieees) / len(members | ieees)
         for group, members in hue_groups.items()

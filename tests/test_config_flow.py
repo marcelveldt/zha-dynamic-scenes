@@ -122,7 +122,7 @@ async def test_import_from_hue_bridge(hass: HomeAssistant, empty_entry: MockConf
         result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
     assert result["errors"] == {"base": "invalid_auth"}
 
-    imported = [palette("hue:a", actions={}), palette("hue:b", actions={})]
+    imported = [palette("hue:a", lamps=[]), palette("hue:b", lamps=[])]
     with patch(f"{INTEGRATION}.config_flow.async_fetch_palettes", return_value=imported):
         result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
     assert result["step_id"] == "import_done"
