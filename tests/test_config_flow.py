@@ -184,6 +184,8 @@ async def test_add_zone_with_cluster(
     ]
     await hass.async_block_till_done()
     assert hass.states.get("select.dynamic_scene") is not None
+    # storage keys are built from the group id, so it must not stay zigpy's hex printing type
+    assert type(empty_entry.runtime_data.zones[GROUP].group_id) is int
 
     # the only ZHA group is taken now
     result = await _menu(hass, empty_entry, "add_zone")

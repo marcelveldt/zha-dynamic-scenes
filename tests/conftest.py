@@ -6,6 +6,7 @@ from unittest.mock import patch
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
+from zigpy.types import Group
 
 from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_dynamic_scenes.models import Lamp, LampKind
@@ -44,7 +45,8 @@ def zha(hass: HomeAssistant, lamps: list[Lamp], transport: FakeTransport) -> Gen
         patch(f"{INTEGRATION}.config_flow.async_zone_lamps", return_value=lamps),
         patch(
             f"{INTEGRATION}.config_flow.async_group_lights",
-            return_value={"light.zone_group": GROUP},
+            # ZHA hands out zigpy's group id type, an int that prints as hex
+            return_value={"light.zone_group": Group(GROUP)},
         ),
         patch(f"{INTEGRATION}.config_flow.async_group_name", return_value="Zone group"),
         patch(f"{INTEGRATION}.async_listen_scene_losses", return_value=lambda: None),

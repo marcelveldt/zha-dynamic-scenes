@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN
+from .const import DOMAIN, STORAGE_VERSION
 from .manager import DynamicScenesManager
 from .services import async_setup_services
 from .zigbee import async_listen_scene_losses, async_zha_ready
@@ -43,3 +46,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: DynamicScenesConfigEntr
     if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         await entry.runtime_data.async_save()
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: DynamicScenesConfigEntry) -> None:
+    """Remove the palette library and the scene cache."""
+    await Store[dict[str, Any]](hass, STORAGE_VERSION, DOMAIN).async_remove()

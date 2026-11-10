@@ -154,7 +154,7 @@ class ZoneConfig:
     def from_dict(cls, data: dict[str, Any]) -> ZoneConfig:
         """Create from the stored dict."""
         return cls(
-            group_id=data["group_id"],
+            group_id=int(data["group_id"]),
             entity_id=data["entity_id"],
             clusters=[list(cluster) for cluster in data.get("clusters", [])],
             palettes=data.get("palettes"),

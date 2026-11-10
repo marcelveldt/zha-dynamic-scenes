@@ -125,6 +125,16 @@ async def test_scene_loss_signals(hass: HomeAssistant) -> None:
     assert lamps == [lamp(1).ieee, lamp(1).ieee]
 
 
+async def test_removing_the_entry_removes_its_storage(
+    hass: HomeAssistant, loaded: MockConfigEntry, hass_storage: dict
+) -> None:
+    await loaded.runtime_data.async_save()
+    assert DOMAIN in hass_storage
+    assert await hass.config_entries.async_remove(loaded.entry_id)
+    await hass.async_block_till_done()
+    assert DOMAIN not in hass_storage
+
+
 async def test_deleted_zone_removes_its_entity(
     hass: HomeAssistant, loaded: MockConfigEntry
 ) -> None:

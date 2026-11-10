@@ -105,7 +105,8 @@ def async_zha_ready(hass: HomeAssistant) -> bool:
 def async_group_lights(hass: HomeAssistant) -> dict[str, int]:
     """Return the ZHA group light entity ids with their Zigbee group id."""
     return {
-        ref.ha_entity_id: ref.entity_data.group_proxy.group.group_id
+        # a plain int: zigpy's group id type prints as hex, which would leak into storage keys
+        ref.ha_entity_id: int(ref.entity_data.group_proxy.group.group_id)
         for refs in _gateway_proxy(hass).ha_entity_refs.values()
         for ref in refs
         if ref.entity_data.group_proxy is not None
