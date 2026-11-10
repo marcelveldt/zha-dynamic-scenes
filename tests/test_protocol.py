@@ -3,10 +3,15 @@
 import pytest
 
 from custom_components.zha_dynamic_scenes.protocol import (
+    CMD_ADD_HUE_SCENE,
+    MANUFACTURER_SIGNIFY,
+    GradientSceneContent,
     SceneContent,
     add_scene_payload,
     dynamic_palette_frame,
     dynamic_palette_payload,
+    gradient_scene_payload,
+    level_from_percent,
     pack_palette_xy,
     remove_scene_payload,
     zcl_frame,
@@ -35,6 +40,9 @@ GIPSKRUID = [
     (0.3456131, 0.3928372),
 ]
 SPEED_GALLERY = 0.6269841
+# gradient points of scenes the Hue bridge stored in a Signe gradient
+GRADIENT_5 = [(0.60, 0.30), (0.20, 0.70), (0.15, 0.06), (0.45, 0.41), (0.30, 0.30)]
+GRADIENT_3 = [(0.50, 0.40), (0.25, 0.25), (0.40, 0.20)]
 
 
 @pytest.mark.parametrize(
@@ -149,13 +157,68 @@ def test_remove_scene_payload() -> None:
 
 
 @pytest.mark.parametrize(
+    ("brightness", "mode", "points", "expected"),
+    [
+        (
+            60,
+            "interpolated_palette",
+            GRADIENT_5,
+            "a8f71e5301019904001350000000100d5c5ac4d6446312ccc97d88065c2800",
+        ),
+        (
+            40,
+            "segmented_palette",
+            GRADIENT_3,
+            "a8f71e5301016604000d30060000e2ba7a71b54cb5583d1800",
+        ),
+        (
+            33,
+            "interpolated_palette_mirrored",
+            GRADIENT_5[:4],
+            "a8f71e5301015404001040040000100d5c5ac4d6446312ccc97d2000",
+        ),
+        (
+            77,
+            "random_pixelated",
+            GRADIENT_3[:2],
+            "a8f71e530101c404000a20020000e2ba7a71b54c1000",
+        ),
+    ],
+)
+def test_gradient_scene_payload_matches_bridge(
+    brightness: float, mode: str, points: list[tuple[float, float]], expected: str
+) -> None:
+    content = GradientSceneContent.from_gradient(points, mode, brightness)
+    assert gradient_scene_payload(0xF7A8, 0x1E, content, 4).hex() == expected
+
+
+def test_gradient_scene_frame_header() -> None:
+    payload = gradient_scene_payload(
+        0, 0x80, GradientSceneContent.from_gradient(GRADIENT_3, "segmented_palette", 40), 4
+    )
+    frame = zcl_frame(0x2A, CMD_ADD_HUE_SCENE, payload, manufacturer=MANUFACTURER_SIGNIFY)
+    # cluster and manufacturer specific, default response on
+    assert frame == bytes.fromhex("050b102a02") + payload
+
+
+@pytest.mark.parametrize(
+    ("brightness", "level"),
+    # levels the Hue bridge sent for these percentages, and the ends of the range
+    [(0, 1), (20, 0x34), (33, 0x54), (40, 0x66), (50, 0x80), (60, 0x99), (77, 0xC4), (100, 254)],
+)
+def test_level_from_percent_matches_bridge(brightness: float, level: int) -> None:
+    assert level_from_percent(brightness) == level
+
+
+@pytest.mark.parametrize(
     ("xy", "brightness", "expected"),
     [
         ((0.5, 0.25), 100, SceneContent(level=254, x=32768, y=16384)),
         ((0.5, 0.25), 0, SceneContent(level=1, x=32768, y=16384)),
-        ((0.3972, 0.4025), 80, SceneContent(level=204, x=26031, y=26378)),
+        ((0.3972, 0.4025), 80, SceneContent(level=203, x=26031, y=26378)),
         # levels the Hue bridge sent for these percentages
         ((0.5, 0.25), 20, SceneContent(level=0x34, x=32768, y=16384)),
+        ((0.5, 0.25), 40, SceneContent(level=0x66, x=32768, y=16384)),
         ((0.5, 0.25), 50, SceneContent(level=0x80, x=32768, y=16384)),
     ],
 )

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+import math
 import struct
 
 MANUFACTURER_SIGNIFY = 0x100B
@@ -20,12 +21,24 @@ CLUSTER_HUE_EFFECTS = 0xFC03
 CMD_REMOVE_SCENE = 0x02
 CMD_ENHANCED_ADD_SCENE = 0x40
 CMD_DYNAMIC_PALETTE = 0x00  # manufacturer specific, same id as Add Scene
+CMD_ADD_HUE_SCENE = 0x02  # manufacturer specific, same id as Remove Scene
+
+ATTR_HUE_FEATURES = 0x0001  # manufacturer specific bitmap of the Hue effects cluster
+FEATURE_GRADIENT = 0x08
 
 STATUS_SUCCESS = 0x00
 STATUS_INSUFFICIENT_SPACE = 0x89
 
 MAX_PALETTE_COLORS = 9
 MAX_LEVEL = 254
+
+# style byte of the gradient colours, by Hue `gradient.mode`
+GRADIENT_STYLES = {
+    "interpolated_palette": 0x00,
+    "random_pixelated": 0x02,
+    "interpolated_palette_mirrored": 0x04,
+    "segmented_palette": 0x06,
+}
 
 _FC_CLUSTER_SPECIFIC = 0x01
 _FC_MANUFACTURER_SPECIFIC = 0x04
@@ -35,6 +48,14 @@ _FLAG_TRANSITION = 0x01
 _FLAG_BRIGHTNESS = 0x02
 _FLAG_PALETTE = 0x04
 _FLAG_SPEED = 0x08
+
+# flags of the Hue effects state (bifrost's numbering; the fields follow in a fixed order,
+# gradient colours before gradient params)
+_STATE_ON = 0x0001
+_STATE_BRIGHTNESS = 0x0002
+_STATE_FADE = 0x0010
+_STATE_GRADIENT_PARAMS = 0x0040
+_STATE_GRADIENT_COLORS = 0x0100
 
 # palette xy is packed in 12 bits per axis, scaled to these maxima (fitted on Hue bridge frames)
 _PALETTE_MAX_X = 0.7347
@@ -65,11 +86,45 @@ class SceneContent:
         :param brightness: Brightness in percent (0..100); 0 is the lowest level, not off.
         """
         return cls(
-            # the Hue bridge maps 20% to 0x34 and 50% to 0x80
-            level=max(1, min(MAX_LEVEL, round(brightness * MAX_LEVEL / 100) + 1)),
+            level=level_from_percent(brightness),
             x=min(_ZCL_MAX_XY, round(xy[0] * 65536)),
             y=min(_ZCL_MAX_XY, round(xy[1] * 65536)),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class GradientSceneContent:
+    """
+    State a gradient lamp stores for a scene: on, level and gradient.
+
+    :param level: Level 1..254.
+    :param points: Gradient colours as CIE xy.
+    :param style: Style byte from `GRADIENT_STYLES`.
+    """
+
+    level: int
+    points: tuple[tuple[float, float], ...]
+    style: int
+
+    @classmethod
+    def from_gradient(
+        cls, points: Sequence[tuple[float, float]], mode: str, brightness: float
+    ) -> GradientSceneContent:
+        """
+        Build the content from a Hue gradient and a Hue style brightness percentage.
+
+        :param points: Gradient colours as CIE xy.
+        :param mode: Hue `gradient.mode`.
+        :param brightness: Brightness in percent (0..100); 0 is the lowest level, not off.
+        """
+        return cls(
+            level=level_from_percent(brightness), points=tuple(points), style=GRADIENT_STYLES[mode]
+        )
+
+
+def level_from_percent(brightness: float) -> int:
+    """Return the level 1..254 for a brightness percentage, as the Hue bridge maps it."""
+    return max(1, min(MAX_LEVEL, 1 + math.floor(brightness * 253 / 100 + 0.5)))
 
 
 def zcl_frame(
@@ -135,10 +190,7 @@ def dynamic_palette_payload(
     if brightness is not None:
         flags |= _FLAG_BRIGHTNESS
         fields += bytes([min(MAX_LEVEL, brightness)])
-    block = bytes([len(colors) << 4, 0x00, 0x00, 0x00]) + b"".join(
-        pack_palette_xy(*xy) for xy in colors
-    )
-    fields += bytes([len(block)]) + block
+    fields += _color_block(colors, style=0x00)
     if speed is not None:
         flags |= _FLAG_SPEED
         fields += bytes([min(255, round(speed * 255))])
@@ -168,6 +220,37 @@ def add_scene_payload(
     )
 
 
+def gradient_scene_payload(
+    group_id: int, scene_id: int, content: GradientSceneContent, transition: int
+) -> bytes:
+    """
+    Return the payload of the Signify Add Scene with on, level and gradient.
+
+    :param transition: Transition time in 1/10 s used when the scene is applied.
+    """
+    flags = (
+        _STATE_ON
+        | _STATE_BRIGHTNESS
+        | _STATE_FADE
+        | _STATE_GRADIENT_COLORS
+        | _STATE_GRADIENT_PARAMS
+    )
+    return (
+        struct.pack("<HBHBBH", group_id, scene_id, flags, 1, content.level, transition)
+        + _color_block(content.points, style=content.style)
+        # gradient params: scale (the point count as fixed point 5.3) and offset
+        + bytes([len(content.points) << 3, 0x00])
+    )
+
+
 def remove_scene_payload(group_id: int, scene_id: int) -> bytes:
     """Return the payload of a standard Remove Scene."""
     return struct.pack("<HB", group_id, scene_id)
+
+
+def _color_block(colors: Sequence[tuple[float, float]], *, style: int) -> bytes:
+    """Return a size prefixed block of packed colours, as palettes and gradients send them."""
+    block = bytes([len(colors) << 4, style, 0x00, 0x00]) + b"".join(
+        pack_palette_xy(*xy) for xy in colors
+    )
+    return bytes([len(block)]) + block

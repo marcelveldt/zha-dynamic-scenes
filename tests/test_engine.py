@@ -1,5 +1,6 @@
 """Start colours, lazy scene slots and LRU eviction."""
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -13,22 +14,42 @@ from custom_components.zha_dynamic_scenes.engine import (
     TransportError,
     assign_targets,
 )
-from custom_components.zha_dynamic_scenes.models import LampKind, LightAction
+from custom_components.zha_dynamic_scenes.models import (
+    Gradient,
+    GradientMode,
+    LampKind,
+    LightAction,
+    PaletteColor,
+)
 from custom_components.zha_dynamic_scenes.protocol import (
+    CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
     CMD_REMOVE_SCENE,
     STATUS_INSUFFICIENT_SPACE,
+    GradientSceneContent,
     SceneContent,
     add_scene_payload,
     dynamic_palette_payload,
+    gradient_scene_payload,
     remove_scene_payload,
 )
 
-from .common import BLUE, GREEN, RED, FakeTransport, lamp, palette
+from .common import (
+    BLUE,
+    FEATURES_COLOR,
+    FEATURES_GRADIENT,
+    GREEN,
+    PALETTE_GRADIENT,
+    RED,
+    FakeTransport,
+    lamp,
+    palette,
+)
 
 GROUP = 0xDD92
 CONTENT_A = SceneContent(level=200, x=20000, y=20000)
 CONTENT_B = SceneContent(level=100, x=30000, y=10000)
+GRADIENT_A = GradientSceneContent(level=200, points=((0.6, 0.3), (0.2, 0.7)), style=0x00)
 
 
 def test_assign_spreads_colours_in_entity_order() -> None:
@@ -40,7 +61,9 @@ def test_assign_spreads_colours_in_entity_order() -> None:
         BLUE.xy,
         RED.xy,
     ]
-    assert targets[lamp(2).ieee] == LampTarget(xy=GREEN.xy, brightness=70.0, mirek=400)
+    assert targets[lamp(2).ieee] == LampTarget(
+        xy=GREEN.xy, brightness=70.0, gradient=PALETTE_GRADIENT, mirek=400
+    )
 
 
 def test_assign_cluster_shares_one_colour() -> None:
@@ -67,9 +90,13 @@ def test_assign_uses_hue_actions() -> None:
         lamp(3).ieee: LightAction(mirek=250, brightness=44.0),
     }
     targets = assign_targets(lamps, [], palette("hue:x", actions=actions))
-    assert targets[lamp(2).ieee] == LampTarget(xy=(0.4, 0.4), brightness=33.0, mirek=400)
+    assert targets[lamp(2).ieee] == LampTarget(
+        xy=(0.4, 0.4), brightness=33.0, gradient=PALETTE_GRADIENT, mirek=400
+    )
     # a colour temperature action keeps its own brightness and mirek; the colour is spread
-    assert targets[lamp(3).ieee] == LampTarget(xy=GREEN.xy, brightness=44.0, mirek=250)
+    assert targets[lamp(3).ieee] == LampTarget(
+        xy=GREEN.xy, brightness=44.0, gradient=PALETTE_GRADIENT, mirek=250
+    )
     assert targets[lamp(1).ieee].xy == RED.xy
     assert targets[lamp(4).ieee].xy == BLUE.xy
 
@@ -83,6 +110,37 @@ def test_assign_cluster_takes_action_of_a_member() -> None:
     assert targets[lamp(1).ieee] == targets[lamp(3).ieee]
     assert targets[lamp(1).ieee].xy == (0.5, 0.4)
     assert targets[lamp(2).ieee].xy == RED.xy
+
+
+def test_assign_cluster_takes_gradient_of_a_member() -> None:
+    lamps = [lamp(1), lamp(2), lamp(3), lamp(4)]
+    gradient = Gradient(points=((0.6, 0.3), (0.2, 0.7)), mode=GradientMode.SEGMENTED_PALETTE)
+    actions = {
+        # the cluster's first action has no gradient: the colour and the gradient come
+        # from different members
+        lamp(1).ieee: LightAction(xy=(0.5, 0.4), brightness=10.0),
+        lamp(3).ieee: LightAction(xy=(0.6, 0.3), brightness=20.0, gradient=gradient),
+        lamp(4).ieee: LightAction(xy=(0.3, 0.3)),
+    }
+    targets = assign_targets(
+        lamps, [[lamp(1).ieee, lamp(3).ieee]], palette("hue:x", actions=actions)
+    )
+    assert targets[lamp(1).ieee] == targets[lamp(3).ieee]
+    assert targets[lamp(1).ieee].xy == (0.5, 0.4)
+    assert targets[lamp(1).ieee].gradient == gradient
+    # lamps without a Hue gradient get the palette colours as gradient
+    assert targets[lamp(2).ieee].gradient == PALETTE_GRADIENT
+    assert targets[lamp(4).ieee].gradient == PALETTE_GRADIENT
+
+
+def test_assign_palette_gradient_takes_the_first_five_colours() -> None:
+    colors = [PaletteColor(0.1 * n, 0.3, 50.0) for n in range(1, 8)]
+    custom = palette()
+    custom.colors = colors
+    targets = assign_targets([lamp(1)], [], custom)
+    assert targets[lamp(1).ieee].gradient == Gradient(
+        points=tuple(color.xy for color in colors[:5]), mode=GradientMode.INTERPOLATED_PALETTE
+    )
 
 
 async def test_first_start_writes_scene_then_groupcasts() -> None:
@@ -129,6 +187,74 @@ async def test_known_content_is_not_written_again() -> None:
     assert [r[0] for r in transport.requests] == [lamp(1).ieee]
     assert cache.stored(lamp(1).ieee, 0x80) == CONTENT_B
     assert len(transport.groupcasts) == 3
+
+
+async def test_gradient_content_is_stored_with_the_signify_command() -> None:
+    transport, cache, engine = _engine()
+    failed = await engine.async_start(
+        GROUP, palette(), [(lamp(1), GRADIENT_A), (lamp(2), CONTENT_A)], speed=0.5
+    )
+    assert failed == []
+    assert transport.signify_requests == [
+        (lamp(1).ieee, CMD_ADD_HUE_SCENE, gradient_scene_payload(0, 0x80, GRADIENT_A, 4))
+    ]
+    assert transport.requests == [
+        (lamp(2).ieee, CMD_ENHANCED_ADD_SCENE, add_scene_payload(0, 0x80, CONTENT_A, 4))
+    ]
+    assert cache.stored(lamp(1).ieee, 0x80) == GRADIENT_A
+    assert len(transport.groupcasts) == 1
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        GradientSceneContent(level=200, points=((0.6, 0.3), (0.2, 0.7)), style=0x06),
+        GradientSceneContent(level=200, points=((0.6, 0.3), (0.2, 0.6)), style=0x00),
+        GradientSceneContent(level=150, points=((0.6, 0.3), (0.2, 0.7)), style=0x00),
+    ],
+)
+async def test_changed_gradient_is_written_again(changed: GradientSceneContent) -> None:
+    transport, cache, engine = _engine()
+    await engine.async_start(GROUP, palette(), [(lamp(1), GRADIENT_A)], speed=0.5)
+    # the cache survives a restart: the same gradient is not written again
+    engine = SceneEngine(transport, SceneCache(cache.as_dict(), Mock()))
+    await engine.async_start(GROUP, palette(), [(lamp(1), GRADIENT_A)], speed=0.5)
+    assert len(transport.signify_requests) == 1
+
+    await engine.async_start(GROUP, palette(), [(lamp(1), changed)], speed=0.5)
+    assert len(transport.signify_requests) == 2
+    assert transport.signify_requests[1][2] == gradient_scene_payload(0, 0x80, changed, 4)
+
+
+async def test_gradient_support_is_read_once_until_the_lamp_is_forgotten() -> None:
+    transport, cache, engine = _engine()
+    transport.features[lamp(1).ieee] = FEATURES_GRADIENT
+    lamps = [lamp(1), lamp(2)]
+    assert await engine.async_gradient_lamps(lamps) == {lamp(1).ieee}
+    assert sorted(transport.feature_reads) == [lamp(1).ieee, lamp(2).ieee]
+
+    transport.feature_reads.clear()
+    restored = SceneEngine(transport, SceneCache(cache.as_dict(), Mock()))
+    assert await restored.async_gradient_lamps(lamps) == {lamp(1).ieee}
+    assert transport.feature_reads == []
+
+    # rewriting a zone's scenes does not forget what the lamps are
+    cache.forget_zone(GROUP)
+    cache.forget_lamp(lamp(1).ieee)
+    transport.features[lamp(1).ieee] = FEATURES_COLOR
+    assert await engine.async_gradient_lamps(lamps) == set()
+    assert transport.feature_reads == [lamp(1).ieee]
+
+
+async def test_unreadable_lamp_has_no_gradient_and_is_read_again() -> None:
+    transport, cache, engine = _engine()
+    transport.features[lamp(1).ieee] = None
+    assert await engine.async_gradient_lamps([lamp(1)]) == set()
+    assert cache.gradient(lamp(1).ieee) is None
+
+    transport.features[lamp(1).ieee] = FEATURES_GRADIENT
+    assert await engine.async_gradient_lamps([lamp(1)]) == {lamp(1).ieee}
+    assert transport.feature_reads == [lamp(1).ieee, lamp(1).ieee]
 
 
 async def test_each_palette_and_zone_gets_its_own_scene_id() -> None:
@@ -256,10 +382,15 @@ def test_cache_state_round_trips_and_saves() -> None:
     cache = SceneCache({}, save)
     cache.allocate(GROUP, "custom:a")
     cache.set_stored(lamp(1).ieee, 0x80, CONTENT_A)
-    assert save.call_count == 2
-    restored = SceneCache(cache.as_dict(), Mock())
+    cache.set_stored(lamp(2).ieee, 0x80, GRADIENT_A)
+    cache.set_gradient(lamp(2).ieee, gradient=True)
+    assert save.call_count == 4
+    restored = SceneCache(json.loads(json.dumps(cache.as_dict())), Mock())
     assert restored.slot(GROUP, "custom:a") == 0x80
     assert restored.stored(lamp(1).ieee, 0x80) == CONTENT_A
+    assert restored.stored(lamp(2).ieee, 0x80) == GRADIENT_A
+    assert restored.gradient(lamp(2).ieee) is True
+    assert restored.gradient(lamp(1).ieee) is None
 
 
 def _engine() -> tuple[FakeTransport, SceneCache, SceneEngine]:

@@ -25,13 +25,16 @@ from zha.application.platforms.light.const import ColorMode
 from zigpy.exceptions import ZigbeeException
 from zigpy.profiles import zha as zha_profile
 from zigpy.types import EUI64
+from zigpy.zcl.foundation import ReadAttributesResponse, Status
 
 from .const import DOMAIN
 from .engine import TransportError
 from .models import Lamp, LampKind
 from .protocol import (
+    ATTR_HUE_FEATURES,
     CLUSTER_HUE_EFFECTS,
     CLUSTER_SCENES,
+    MANUFACTURER_SIGNIFY,
     dynamic_palette_frame,
     zcl_frame,
 )
@@ -50,10 +53,13 @@ class ZhaSceneTransport:
         """Initialize the transport."""
         self._hass = hass
 
-    async def async_scene_request(self, lamp: Lamp, command_id: int, payload: bytes) -> int:
+    async def async_scene_request(
+        self, lamp: Lamp, command_id: int, payload: bytes, *, manufacturer: int | None = None
+    ) -> int:
         """
-        Send a standard Scenes cluster command to one lamp.
+        Send a Scenes cluster command to one lamp.
 
+        :param manufacturer: Manufacturer code of a manufacturer specific command.
         :return: ZCL status of the lamp's response.
         :raises TransportError: The lamp did not answer.
         """
@@ -64,13 +70,34 @@ class ZhaSceneTransport:
             response = await endpoint.request(
                 CLUSTER_SCENES,
                 tsn,
-                zcl_frame(tsn, command_id, payload),
+                zcl_frame(tsn, command_id, payload, manufacturer=manufacturer),
                 command_id=command_id,
             )
         except (ZigbeeException, TimeoutError) as err:
             raise TransportError(str(err) or type(err).__name__) from err
-        # the scene response or a default response, both carry a status
+        # the scene response or a default response, both carry a status; zigpy parses the
+        # Signify Add Scene response as Remove Scene Response, which has the same layout
         return int(response.status)
+
+    async def async_read_features(self, lamp: Lamp) -> int:
+        """
+        Read the Hue features bitmap of one lamp.
+
+        :raises TransportError: The lamp did not answer or did not report the bitmap.
+        """
+        device = _gateway_proxy(self._hass).gateway.devices[EUI64.convert(lamp.ieee)]
+        cluster = device.device.endpoints[lamp.endpoint_id].in_clusters[CLUSTER_HUE_EFFECTS]
+        try:
+            response = await cluster.read_attributes_raw(
+                [ATTR_HUE_FEATURES], manufacturer=MANUFACTURER_SIGNIFY
+            )
+        except (ZigbeeException, TimeoutError) as err:
+            raise TransportError(str(err) or type(err).__name__) from err
+        # a lamp that rejects the read answers with a default response instead
+        records = response.status_records if isinstance(response, ReadAttributesResponse) else []
+        if not records or records[0].status != Status.SUCCESS:
+            raise TransportError(f"no features in {response}")
+        return int(records[0].value.value)
 
     async def async_start_dynamic(self, group_id: int, payload: bytes) -> None:
         """

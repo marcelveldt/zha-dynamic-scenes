@@ -15,6 +15,8 @@ from custom_components.zha_dynamic_scenes.hue_import import (
 )
 from custom_components.zha_dynamic_scenes.models import (
     ColorTemperature,
+    Gradient,
+    GradientMode,
     LightAction,
     Palette,
     PaletteColor,
@@ -57,7 +59,13 @@ def test_parse_palettes() -> None:
     assert gradient.group_name == "Living room"
     assert gradient.color_temperature is None
     assert gradient.actions == {
-        IEEE_1: LightAction(xy=(0.2, 0.5), brightness=90.0),
+        IEEE_1: LightAction(
+            xy=(0.2, 0.5),
+            brightness=90.0,
+            gradient=Gradient(
+                points=((0.2, 0.5), (0.3, 0.2), (0.4, 0.4)), mode=GradientMode.SEGMENTED_PALETTE
+            ),
+        ),
         IEEE_2: LightAction(),
     }
     assert gradient.label == "Aurora (Living room)"

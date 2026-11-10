@@ -7,15 +7,21 @@ from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
 from custom_components.zha_dynamic_scenes.const import DOMAIN
 from custom_components.zha_dynamic_scenes.manager import DynamicScenesManager, default_palettes
-from custom_components.zha_dynamic_scenes.models import LightAction, PaletteSource
+from custom_components.zha_dynamic_scenes.models import (
+    Gradient,
+    GradientMode,
+    LightAction,
+    PaletteSource,
+)
 from custom_components.zha_dynamic_scenes.protocol import (
+    CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
     SceneContent,
     add_scene_payload,
     dynamic_palette_payload,
 )
 
-from .common import BLUE, GREEN, RED, FakeTransport, lamp, palette
+from .common import BLUE, FEATURES_GRADIENT, GREEN, RED, FakeTransport, lamp, palette
 from .conftest import GROUP
 
 
@@ -52,8 +58,69 @@ async def test_activate_mixed_zone(
     ]
     assert sorted((call.data for call in calls), key=lambda d: d["entity_id"]) == [
         {"entity_id": "light.lamp_03", "brightness": 153, "color_temp_kelvin": 2500},
-        {"entity_id": "light.lamp_04", "brightness": 204, "xy_color": RED.xy},
+        {"entity_id": "light.lamp_04", "brightness": 203, "xy_color": RED.xy},
     ]
+    assert transport.signify_requests == []
+
+
+@pytest.mark.usefixtures("zha")
+async def test_activate_gradient_lamp(
+    hass: HomeAssistant, entry: MockConfigEntry, transport: FakeTransport, hass_storage: dict
+) -> None:
+    manager = await DynamicScenesManager.async_load(hass, entry)
+    gradient = Gradient(
+        points=((0.50, 0.40), (0.25, 0.25), (0.40, 0.20)), mode=GradientMode.SEGMENTED_PALETTE
+    )
+    actions = {lamp(1).ieee: LightAction(xy=(0.50, 0.40), brightness=40.0, gradient=gradient)}
+    manager.async_update_palettes([palette("hue:a", actions=actions)])
+    calls = async_mock_service(hass, "light", "turn_on")
+    transport.features[lamp(1).ieee] = FEATURES_GRADIENT
+
+    await manager.async_activate(GROUP, "hue:a")
+
+    # the gradient lamp stores its gradient like the Hue bridge does
+    assert transport.signify_requests == [
+        (
+            lamp(1).ieee,
+            CMD_ADD_HUE_SCENE,
+            # group 0x0000, scene 0x80, then what the bridge sent for 40 % segmented
+            bytes.fromhex("000080" + "5301016604000d30060000e2ba7a71b54cb5583d1800"),
+        )
+    ]
+    assert transport.requests == [
+        (
+            lamp(2).ieee,
+            CMD_ENHANCED_ADD_SCENE,
+            add_scene_payload(0, 0x80, SceneContent.from_xy(RED.xy, 80.0), 4),
+        )
+    ]
+    assert transport.groupcasts == [
+        (GROUP, dynamic_palette_payload(0, 0x80, [RED.xy, GREEN.xy, BLUE.xy], speed=0.5))
+    ]
+    assert sorted(call.data["entity_id"] for call in calls) == ["light.lamp_03", "light.lamp_04"]
+
+    await manager.async_save()
+    assert hass_storage[DOMAIN]["data"]["gradient"] == {lamp(1).ieee: True, lamp(2).ieee: False}
+
+
+@pytest.mark.usefixtures("zha")
+async def test_failed_gradient_lamp_gets_its_first_gradient_point(
+    hass: HomeAssistant, entry: MockConfigEntry, transport: FakeTransport
+) -> None:
+    manager = await DynamicScenesManager.async_load(hass, entry)
+    manager.async_update_palettes([palette()])
+    calls = async_mock_service(hass, "light", "turn_on")
+    transport.features[lamp(2).ieee] = FEATURES_GRADIENT
+    transport.answers[lamp(2).ieee] = [None]
+
+    await manager.async_activate(GROUP, "custom:a")
+
+    # its start colour is green; its gradient is the palette, which starts red
+    assert {call.data["entity_id"]: call.data for call in calls}["light.lamp_02"] == {
+        "entity_id": "light.lamp_02",
+        "brightness": 178,
+        "xy_color": RED.xy,
+    }
 
 
 @pytest.mark.usefixtures("zha")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import replace
 import logging
 from typing import Any
 
@@ -24,9 +25,16 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util.color import color_temperature_mired_to_kelvin
 
 from .const import CONF_ZONES, DOMAIN, SIGNAL_LIBRARY_UPDATED, STORAGE_VERSION
-from .engine import LampTarget, SceneCache, SceneEngine, TransportError, assign_targets
+from .engine import (
+    LampTarget,
+    SceneCache,
+    SceneEngine,
+    StoredContent,
+    TransportError,
+    assign_targets,
+)
 from .models import Lamp, LampKind, Palette, PaletteSource, ZoneConfig
-from .protocol import MAX_LEVEL, SceneContent
+from .protocol import MAX_LEVEL, GradientSceneContent, SceneContent, level_from_percent
 from .zigbee import ZhaSceneTransport, async_group_member_ieees, async_zone_lamps
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,10 +121,12 @@ class DynamicScenesManager:
         lamps = async_zone_lamps(self.hass, group_id)
         targets = assign_targets(lamps, self.zones[group_id].clusters, palette)
         dynamic = [lamp for lamp in lamps if lamp.kind is LampKind.DYNAMIC]
+        gradient_lamps: set[str] = set()
         failed: list[Lamp] = []
         if dynamic:
+            gradient_lamps = await self._engine.async_gradient_lamps(dynamic)
             contents = [
-                (lamp, SceneContent.from_xy(targets[lamp.ieee].xy, targets[lamp.ieee].brightness))
+                (lamp, _scene_content(targets[lamp.ieee], lamp.ieee in gradient_lamps))
                 for lamp in dynamic
             ]
             try:
@@ -134,7 +144,12 @@ class DynamicScenesManager:
                     translation_key="send_failed",
                     translation_placeholders={"error": str(err)},
                 ) from err
-        # lamps that could not store the scene still get their start colour
+        # lamps that could not store the scene still get their start colour, gradient lamps
+        # the first point of their gradient
+        for lamp in failed:
+            if lamp.ieee in gradient_lamps:
+                target = targets[lamp.ieee]
+                targets[lamp.ieee] = replace(target, xy=target.gradient.points[0])
         static = [lamp for lamp in lamps if lamp.kind is not LampKind.DYNAMIC] + failed
         results = await asyncio.gather(
             *(
@@ -190,7 +205,7 @@ class DynamicScenesManager:
         """Set a lamp that does not animate to its start state."""
         data: dict[str, Any] = {
             ATTR_ENTITY_ID: lamp.entity_id,
-            ATTR_BRIGHTNESS: brightness or max(1, round(target.brightness * 255 / 100)),
+            ATTR_BRIGHTNESS: brightness or level_from_percent(target.brightness),
         }
         if lamp.kind in (LampKind.DYNAMIC, LampKind.COLOR):
             data[ATTR_XY_COLOR] = target.xy
@@ -253,3 +268,12 @@ def default_palettes(palettes: Iterable[Palette], ieees: set[str]) -> list[Palet
         if palette.source is PaletteSource.CUSTOM
         or (best is not None and scores.get(palette.group_name) == best)
     ]
+
+
+def _scene_content(target: LampTarget, gradient: bool) -> StoredContent:
+    """Return what a dynamic lamp stores for its start state."""
+    if gradient:
+        return GradientSceneContent.from_gradient(
+            target.gradient.points, target.gradient.mode, target.brightness
+        )
+    return SceneContent.from_xy(target.xy, target.brightness)

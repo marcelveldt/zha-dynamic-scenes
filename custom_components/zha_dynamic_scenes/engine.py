@@ -11,15 +11,20 @@ import itertools
 import logging
 from typing import Any, Protocol
 
-from .models import Lamp, LightAction, Palette, PaletteColor
+from .models import Gradient, Lamp, LightAction, Palette, PaletteColor
 from .protocol import (
+    CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
     CMD_REMOVE_SCENE,
+    FEATURE_GRADIENT,
+    MANUFACTURER_SIGNIFY,
     STATUS_INSUFFICIENT_SPACE,
     STATUS_SUCCESS,
+    GradientSceneContent,
     SceneContent,
     add_scene_payload,
     dynamic_palette_payload,
+    gradient_scene_payload,
     remove_scene_payload,
 )
 
@@ -31,6 +36,9 @@ LAST_SCENE_ID = 0xFE
 # or when a Remove All Scenes is sent to it
 SCENE_GROUP = 0x0000
 SCENE_TRANSITION = 4  # 1/10 s, the Hue default
+MAX_GRADIENT_POINTS = 5  # what current Hue gradient lamps take
+
+type StoredContent = SceneContent | GradientSceneContent
 
 
 class TransportError(Exception):
@@ -40,12 +48,22 @@ class TransportError(Exception):
 class SceneTransport(Protocol):
     """Sends Scenes cluster frames to lamps and groups."""
 
-    async def async_scene_request(self, lamp: Lamp, command_id: int, payload: bytes) -> int:
+    async def async_scene_request(
+        self, lamp: Lamp, command_id: int, payload: bytes, *, manufacturer: int | None = None
+    ) -> int:
         """
-        Send a standard Scenes cluster command to one lamp.
+        Send a Scenes cluster command to one lamp.
 
+        :param manufacturer: Manufacturer code of a manufacturer specific command.
         :return: ZCL status of the lamp's response.
         :raises TransportError: The lamp did not answer.
+        """
+
+    async def async_read_features(self, lamp: Lamp) -> int:
+        """
+        Read the Hue features bitmap of one lamp.
+
+        :raises TransportError: The lamp did not answer or did not report the bitmap.
         """
 
     async def async_start_dynamic(self, group_id: int, payload: bytes) -> None:
@@ -63,11 +81,13 @@ class LampTarget:
 
     :param xy: Start colour.
     :param brightness: Brightness in percent (0..100).
+    :param gradient: Start gradient for gradient lamps.
     :param mirek: Colour temperature for lamps without colour, if the palette has one.
     """
 
     xy: tuple[float, float]
     brightness: float
+    gradient: Gradient
     mirek: int | None = None
 
 
@@ -79,8 +99,9 @@ def assign_targets(
 
     Lamps of a cluster share one start state; every other lamp is a cluster of its own.
     A cluster takes the Hue scene action of its first lamp that has one, the other clusters
-    get the palette colours in turn. The result only depends on the input, so lamps keep
-    their start colour across activations.
+    get the palette colours in turn. Likewise a cluster takes the Hue gradient of its first
+    lamp that has one; the other clusters get the palette colours as gradient. The result
+    only depends on the input, so lamps keep their start colour across activations.
 
     :param lamps: Lamps of the zone.
     :param clusters: Lists of IEEEs that must share a start colour.
@@ -100,16 +121,21 @@ def assign_targets(
     )
 
     spread = itertools.cycle(palette.colors)
+    palette_gradient = Gradient(
+        points=tuple(color.xy for color in palette.colors[:MAX_GRADIENT_POINTS])
+    )
     targets: dict[str, LampTarget] = {}
     for unit in units:
-        action = next((palette.actions[i] for i in unit if i in palette.actions), None)
-        targets.update(dict.fromkeys(unit, _target(palette, action, spread)))
+        actions = [palette.actions[i] for i in unit if i in palette.actions]
+        action = actions[0] if actions else None
+        gradient = next((a.gradient for a in actions if a.gradient), palette_gradient)
+        targets.update(dict.fromkeys(unit, _target(palette, action, gradient, spread)))
     return targets
 
 
 class SceneCache:
     """
-    Scene slots per zone and the scene content each lamp is known to store.
+    Scene slots per zone, the scene content each lamp is known to store and its gradient support.
 
     All scenes are stored in group 0x0000 and a lamp can be in several zones, so scene ids
     are unique over all zones. The state is a JSON serializable dict; `save` is called
@@ -125,13 +151,15 @@ class SceneCache:
         """
         # zone group id -> palette id -> {"scene_id": int, "used": int}
         self._slots: dict[str, dict[str, dict[str, int]]] = data.get("slots", {})
-        # ieee -> scene id -> [level, x, y]
-        self._scenes: dict[str, dict[str, list[int]]] = data.get("scenes", {})
+        # ieee -> scene id -> [level, x, y] or {"level": int, "points": [[x, y]], "style": int}
+        self._scenes: dict[str, dict[str, list[int] | dict[str, Any]]] = data.get("scenes", {})
+        # ieee -> whether the lamp shows gradients
+        self._gradient: dict[str, bool] = data.get("gradient", {})
         self._save = save
 
     def as_dict(self) -> dict[str, Any]:
         """Return the state to persist."""
-        return {"slots": self._slots, "scenes": self._scenes}
+        return {"slots": self._slots, "scenes": self._scenes, "gradient": self._gradient}
 
     def slot(self, group_id: int, palette_id: str) -> int | None:
         """Return the scene id of a palette in a zone, if it has one."""
@@ -180,24 +208,35 @@ class SceneCache:
         self._save()
         return scene_id
 
-    def stored(self, ieee: str, scene_id: int) -> SceneContent | None:
+    def stored(self, ieee: str, scene_id: int) -> StoredContent | None:
         """Return what a lamp stores for a scene, None if unknown."""
         if content := self._scenes.get(ieee, {}).get(str(scene_id)):
-            return SceneContent(*content)
+            return _content_from_json(content)
         return None
 
-    def set_stored(self, ieee: str, scene_id: int, content: SceneContent | None) -> None:
+    def set_stored(self, ieee: str, scene_id: int, content: StoredContent | None) -> None:
         """Record what a lamp stores for a scene; None marks it unknown."""
         key = str(scene_id)
         if content is None:
             self._scenes.get(ieee, {}).pop(key, None)
         else:
-            self._scenes.setdefault(ieee, {})[key] = [content.level, content.x, content.y]
+            self._scenes.setdefault(ieee, {})[key] = _content_to_json(content)
+        self._save()
+
+    def gradient(self, ieee: str) -> bool | None:
+        """Return whether a lamp shows gradients, None if unknown."""
+        return self._gradient.get(ieee)
+
+    def set_gradient(self, ieee: str, gradient: bool) -> None:
+        """Record whether a lamp shows gradients."""
+        self._gradient[ieee] = gradient
         self._save()
 
     def forget_lamp(self, ieee: str) -> None:
-        """Forget all scenes of a lamp, e.g. after it was reset."""
-        if self._scenes.pop(ieee, None) is not None:
+        """Forget all scenes and the gradient support of a lamp, e.g. after it was reset."""
+        scenes = self._scenes.pop(ieee, None)
+        gradient = self._gradient.pop(ieee, None)
+        if scenes is not None or gradient is not None:
             self._save()
 
     def forget_zone(self, group_id: int) -> None:
@@ -218,11 +257,22 @@ class SceneEngine:
         self._cache = cache
         self._locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+    async def async_gradient_lamps(self, lamps: Sequence[Lamp]) -> set[str]:
+        """
+        Return the IEEEs of the lamps that show gradients.
+
+        A lamp is asked once and remembered until it is forgotten. A lamp that does not
+        answer counts as one without gradient and is asked again next time.
+        """
+        unknown = [lamp for lamp in lamps if self._cache.gradient(lamp.ieee) is None]
+        await asyncio.gather(*(self._async_read_gradient(lamp) for lamp in unknown))
+        return {lamp.ieee for lamp in lamps if self._cache.gradient(lamp.ieee)}
+
     async def async_start(
         self,
         group_id: int,
         palette: Palette,
-        contents: Sequence[tuple[Lamp, SceneContent]],
+        contents: Sequence[tuple[Lamp, StoredContent]],
         *,
         speed: float,
         brightness: int | None = None,
@@ -236,7 +286,8 @@ class SceneEngine:
 
         :param group_id: Zigbee group of the zone.
         :param palette: The palette to start.
-        :param contents: The dynamic lamps of the zone with the scene content they start from.
+        :param contents: The dynamic lamps of the zone with the scene content they start from;
+            gradient content for gradient lamps.
         :param speed: Animation speed 0..1.
         :param brightness: Level 1..254 for all lamps instead of their own.
         :param transition: Transition time in 1/10 s.
@@ -273,7 +324,7 @@ class SceneEngine:
         group_id: int,
         palette_id: str,
         scene_id: int,
-        pending: Sequence[tuple[Lamp, SceneContent]],
+        pending: Sequence[tuple[Lamp, StoredContent]],
         lamps: Sequence[Lamp],
     ) -> list[Lamp]:
         """Add the scene to the pending lamps; return the lamps that failed."""
@@ -304,14 +355,22 @@ class SceneEngine:
                 failed.append(lamp)
         return failed
 
-    async def _async_add(self, lamp: Lamp, scene_id: int, content: SceneContent) -> int | None:
+    async def _async_add(self, lamp: Lamp, scene_id: int, content: StoredContent) -> int | None:
         """Add the scene to one lamp; return the ZCL status, None without response."""
         try:
-            status = await self._transport.async_scene_request(
-                lamp,
-                CMD_ENHANCED_ADD_SCENE,
-                add_scene_payload(SCENE_GROUP, scene_id, content, SCENE_TRANSITION),
-            )
+            if isinstance(content, GradientSceneContent):
+                status = await self._transport.async_scene_request(
+                    lamp,
+                    CMD_ADD_HUE_SCENE,
+                    gradient_scene_payload(SCENE_GROUP, scene_id, content, SCENE_TRANSITION),
+                    manufacturer=MANUFACTURER_SIGNIFY,
+                )
+            else:
+                status = await self._transport.async_scene_request(
+                    lamp,
+                    CMD_ENHANCED_ADD_SCENE,
+                    add_scene_payload(SCENE_GROUP, scene_id, content, SCENE_TRANSITION),
+                )
         except TransportError:
             status = None
         self._cache.set_stored(lamp.ieee, scene_id, content if status == STATUS_SUCCESS else None)
@@ -330,9 +389,21 @@ class SceneEngine:
                 lamp, CMD_REMOVE_SCENE, remove_scene_payload(SCENE_GROUP, scene_id)
             )
 
+    async def _async_read_gradient(self, lamp: Lamp) -> None:
+        """Ask a lamp whether it shows gradients and remember the answer."""
+        try:
+            features = await self._transport.async_read_features(lamp)
+        except TransportError as err:
+            _LOGGER.debug("Cannot read the Hue features of %s: %s", lamp.entity_id, err)
+            return
+        self._cache.set_gradient(lamp.ieee, bool(features & FEATURE_GRADIENT))
+
 
 def _target(
-    palette: Palette, action: LightAction | None, spread: Iterator[PaletteColor]
+    palette: Palette,
+    action: LightAction | None,
+    gradient: Gradient,
+    spread: Iterator[PaletteColor],
 ) -> LampTarget:
     """Return the start state for a Hue scene action, or the next palette colour."""
     if action is not None and action.xy is not None:
@@ -344,4 +415,26 @@ def _target(
     if action is not None:
         brightness = action.brightness if action.brightness is not None else brightness
         mirek = action.mirek or mirek
-    return LampTarget(xy=xy, brightness=brightness, mirek=mirek)
+    return LampTarget(xy=xy, brightness=brightness, gradient=gradient, mirek=mirek)
+
+
+def _content_to_json(content: StoredContent) -> list[int] | dict[str, Any]:
+    """Return scene content in the cache's JSON form."""
+    if isinstance(content, GradientSceneContent):
+        return {
+            "level": content.level,
+            "points": [list(point) for point in content.points],
+            "style": content.style,
+        }
+    return [content.level, content.x, content.y]
+
+
+def _content_from_json(data: list[int] | dict[str, Any]) -> StoredContent:
+    """Return scene content from the cache's JSON form."""
+    if isinstance(data, dict):
+        return GradientSceneContent(
+            level=data["level"],
+            points=tuple((x, y) for x, y in data["points"]),
+            style=data["style"],
+        )
+    return SceneContent(*data)
