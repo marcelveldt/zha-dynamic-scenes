@@ -1,9 +1,9 @@
 blueprint:
   name: Hue Tap Dial dynamic scenes
   description: >-
-    Buttons 1 to 3 of a Hue Tap Dial paired to ZHA each start a palette of ZHA dynamic scenes
-    with their own brightness; button 4 steps to the zone's next palette. Bind the dial to the
-    zone's ZHA group so dimming and off work without Home Assistant.
+    Each of the four buttons of a Hue Tap Dial paired to ZHA starts a palette of ZHA dynamic scenes
+    with its own brightness. Bind the dial to the zone's ZHA group so dimming and off work without
+    Home Assistant.
   domain: automation
   source_url: https://github.com/marcelveldt/zha-dynamic-scenes/blob/main/blueprints/automation/zha_dynamic_scenes/tap_dial.yaml
   homeassistant:
@@ -16,14 +16,6 @@ blueprint:
           filter:
             - integration: zha
               model: RDM002
-    zone:
-      name: Zone
-      description: The zone's palette select; button 4 starts its next palette.
-      selector:
-        entity:
-          filter:
-            - integration: zha_dynamic_scenes
-              domain: select
     button_1_scene:
       name: Button 1 palette
       selector:
@@ -72,9 +64,25 @@ blueprint:
           min: 0
           max: 255
           mode: slider
+    button_4_scene:
+      name: Button 4 palette
+      selector:
+        entity:
+          filter:
+            - integration: zha_dynamic_scenes
+              domain: scene
+    button_4_brightness:
+      name: Button 4 brightness
+      description: 0 keeps the palette's own brightness.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: slider
     transition:
       name: Transition
-      description: Fade time when buttons 1 to 3 start a palette; empty keeps the default.
+      description: Fade time when a button starts a palette; empty keeps the default.
       default:
       selector:
         number:
@@ -84,7 +92,7 @@ blueprint:
           unit_of_measurement: seconds
           mode: box
 
-# a press waits for the previous start, so button 4 steps on from the palette it started
+# a press waits for the previous start, so the last press decides the palette
 mode: queued
 max: 10
 max_exceeded: silent
@@ -152,7 +160,8 @@ triggers:
     subtype: button_4
     id: button_4
     variables:
-      steps: 1
+      scene: !input button_4_scene
+      brightness: !input button_4_brightness
   - trigger: device
     domain: zha
     device_id: !input tap_dial
@@ -160,52 +169,16 @@ triggers:
     subtype: button_4
     id: button_4
     variables:
-      steps: 2
-  - trigger: device
-    domain: zha
-    device_id: !input tap_dial
-    type: remote_button_triple_press
-    subtype: button_4
-    id: button_4
-    variables:
-      steps: 3
-  - trigger: device
-    domain: zha
-    device_id: !input tap_dial
-    type: remote_button_quadruple_press
-    subtype: button_4
-    id: button_4
-    variables:
-      steps: 4
-  - trigger: device
-    domain: zha
-    device_id: !input tap_dial
-    type: remote_button_quintuple_press
-    subtype: button_4
-    id: button_4
-    variables:
-      steps: 5
+      scene: !input button_4_scene
+      brightness: !input button_4_brightness
 
 variables:
   transition: !input transition
 
 actions:
-  - if:
-      - condition: trigger
-        id: button_4
-    then:
-      - repeat:
-          count: "{{ steps }}"
-          sequence:
-            - action: select.select_next
-              target:
-                entity_id: !input zone
-              data:
-                cycle: true
-    else:
-      - action: zha_dynamic_scenes.activate
-        target:
-          entity_id: "{{ scene }}"
-        data: >-
-          {% set data = {'brightness': brightness} if brightness > 0 else {} %}
-          {{ dict(data, transition=transition) if transition is not none else data }}
+  - action: zha_dynamic_scenes.activate
+    target:
+      entity_id: "{{ scene }}"
+    data: >-
+      {% set data = {'brightness': brightness} if brightness > 0 else {} %}
+      {{ dict(data, transition=transition) if transition is not none else data }}

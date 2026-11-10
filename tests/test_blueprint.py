@@ -20,8 +20,7 @@ BLUEPRINT = Path(__file__).parents[1] / "blueprints" / "automation" / PATH
 IEEE = "00:17:88:01:0b:00:00:01"
 # the triggers ZHA offers for the Tap Dial
 TRIGGERS = PhilipsRDM002.device_automation_triggers
-SELECT = "select.zone_group_dynamic_scene"
-SCENES = {f"button_{n}": f"scene.zone_group_palette_{n}" for n in (1, 2, 3)}
+SCENES = {f"button_{n}": f"scene.zone_group_palette_{n}" for n in (1, 2, 3, 4)}
 
 
 @pytest.fixture
@@ -57,12 +56,7 @@ async def test_automation_config_is_valid(hass: HomeAssistant, tap_dial: str) ->
     assert config is not None
     short, double = "remote_button_short_press", "remote_button_double_press"
     assert [(trigger["type"], trigger["subtype"]) for trigger in config["triggers"]] == [
-        *((press, f"button_{n}") for n in (1, 2, 3) for press in (short, double)),
-        (short, "button_4"),
-        (double, "button_4"),
-        ("remote_button_triple_press", "button_4"),
-        ("remote_button_quadruple_press", "button_4"),
-        ("remote_button_quintuple_press", "button_4"),
+        (press, f"button_{n}") for n in (1, 2, 3, 4) for press in (short, double)
     ]
 
 
@@ -77,7 +71,7 @@ async def test_automation_config_is_valid(hass: HomeAssistant, tap_dial: str) ->
             ("activate", {"entity_id": [SCENES["button_3"]], "brightness": 255, "transition": 1.5}),
         ),
         (1.5, "button_2", ("activate", {"entity_id": [SCENES["button_2"]], "transition": 1.5})),
-        (1.5, "button_4", ("select_next", {"entity_id": [SELECT], "cycle": True})),
+        (None, "button_4", ("activate", {"entity_id": [SCENES["button_4"]], "brightness": 64})),
     ],
 )
 async def test_button_press(
@@ -88,7 +82,6 @@ async def test_button_press(
     call: tuple[str, dict[str, Any]],
 ) -> None:
     activate = async_mock_service(hass, "zha_dynamic_scenes", "activate")
-    select_next = async_mock_service(hass, "select", "select_next")
     assert await async_setup_component(
         hass, "automation", {"automation": _automation(tap_dial, transition)}
     )
@@ -98,8 +91,7 @@ async def test_button_press(
     )
     await hass.async_block_till_done()
 
-    calls = [(c.service, c.data) for c in (*activate, *select_next)]
-    assert calls == [call]
+    assert [(c.service, c.data) for c in activate] == [call]
 
 
 @pytest.mark.parametrize(
@@ -113,12 +105,7 @@ async def test_button_press(
         (
             "remote_button_double_press",
             "button_4",
-            [("select_next", {"entity_id": [SELECT], "cycle": True})] * 2,
-        ),
-        (
-            "remote_button_quintuple_press",
-            "button_4",
-            [("select_next", {"entity_id": [SELECT], "cycle": True})] * 5,
+            [("activate", {"entity_id": [SCENES["button_4"]], "brightness": 64})],
         ),
     ],
 )
@@ -129,27 +116,27 @@ async def test_quick_taps(
     button: str,
     calls: list[tuple[str, dict[str, Any]]],
 ) -> None:
-    """Quick taps arrive as one multi-press event: button 4 steps once per tap, 1-3 start once."""
+    """Quick taps arrive as one multi-press event that starts the button's palette once."""
     activate = async_mock_service(hass, "zha_dynamic_scenes", "activate")
-    select_next = async_mock_service(hass, "select", "select_next")
     assert await async_setup_component(hass, "automation", {"automation": _automation(tap_dial)})
 
     hass.bus.async_fire("zha_event", {"device_ieee": IEEE, **TRIGGERS[(press, button)]})
     await hass.async_block_till_done()
 
-    assert [(c.service, c.data) for c in (*activate, *select_next)] == calls
+    assert [(c.service, c.data) for c in activate] == calls
 
 
 def _automation(device_id: str, transition: float | None = None) -> dict[str, Any]:
     """Return an automation from the blueprint; button 2 keeps the palette's brightness."""
     inputs: dict[str, Any] = {
         "tap_dial": device_id,
-        "zone": SELECT,
         "button_1_scene": SCENES["button_1"],
         "button_1_brightness": 120,
         "button_2_scene": SCENES["button_2"],
         "button_3_scene": SCENES["button_3"],
         "button_3_brightness": 255,
+        "button_4_scene": SCENES["button_4"],
+        "button_4_brightness": 64,
     }
     if transition is not None:
         inputs["transition"] = transition

@@ -68,10 +68,9 @@ removed, also from the entity registry.
 in Home Assistant under *Settings > Automations & scenes > Blueprints > Import blueprint* with its GitHub
 URL.
 
-- `tap_dial.yaml`: a Hue Tap Dial (RDM002) paired to ZHA. Buttons 1 to 3 each start a palette through
-  `activate`, with their own brightness; button 4 steps through the zone's palettes with
-  `select.select_next`. Dimming and off stay out of the automation: bind the dial to the zone's ZHA group
-  so they work without Home Assistant.
+- `tap_dial.yaml`: a Hue Tap Dial (RDM002) paired to ZHA. Each of the four buttons starts a palette
+  through `activate`, with its own brightness. Dimming and off stay out of the automation: bind the dial to
+  the zone's ZHA group so they work without Home Assistant.
 
 ## Activating a palette
 
