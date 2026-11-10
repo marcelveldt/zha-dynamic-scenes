@@ -55,8 +55,9 @@ CORRECTION_PIVOT = 300
 
 type PaletteContent = SceneContent | GradientSceneContent
 type StoredContent = PaletteContent | ColorTemperatureSceneContent
-# sets a lamp to a scene state through Home Assistant with a transition in 1/10 s; never raises
-type LampSetter = Callable[[Lamp, ColorTemperatureSceneContent, int], Awaitable[None]]
+# sets a lamp to a scene state through Home Assistant with a transition in 1/10 s; returns
+# whether that worked, never raises
+type LampSetter = Callable[[Lamp, ColorTemperatureSceneContent, int], Awaitable[bool]]
 
 
 class TransportError(Exception):
@@ -479,7 +480,7 @@ class SceneEngine:
                     to_store.append((lamp, content))
                 elif not self._record(zone, lamp, group_id, scene_id, content, status=status):
                     missing.append((lamp, content))
-            await self._async_store_state(zone, group_id, scene_id, to_store, set_lamp)
+            missing += await self._async_store_state(zone, group_id, scene_id, to_store, set_lamp)
 
             payload = recall_scene_payload(group_id, scene_id, transition)
             await self._async_send(zone, contents, CLUSTER_SCENES, CMD_RECALL_SCENE, payload)
@@ -540,20 +541,30 @@ class SceneEngine:
         scene_id: int,
         pending: Sequence[tuple[Lamp, ColorTemperatureSceneContent]],
         set_lamp: LampSetter,
-    ) -> None:
-        """Set lamps that hold an empty scene entry to the scene and store their state in it."""
+    ) -> list[tuple[Lamp, ColorTemperatureSceneContent]]:
+        """
+        Set lamps that hold an empty scene entry to the scene and store their state in it.
+
+        :return: The lamps that could not be set; they store nothing.
+        """
         if not pending:
-            return
-        await asyncio.gather(*(set_lamp(lamp, content, 0) for lamp, content in pending))
-        await asyncio.sleep(SETTLE_TIME)
+            return []
+        results = await asyncio.gather(*(set_lamp(lamp, content, 0) for lamp, content in pending))
+        unset = [item for item, done in zip(pending, results, strict=True) if not done]
+        for lamp, _ in unset:
+            self._cache.set_stored(lamp.ieee, group_id, scene_id, None)
+        to_store = [item for item, done in zip(pending, results, strict=True) if done]
+        if to_store:
+            await asyncio.sleep(SETTLE_TIME)
         statuses = await asyncio.gather(
             *(
                 self._async_request(lamp, CMD_STORE_SCENE, store_scene_payload(group_id, scene_id))
-                for lamp, _ in pending
+                for lamp, _ in to_store
             )
         )
-        for (lamp, content), status in zip(pending, statuses, strict=True):
+        for (lamp, content), status in zip(to_store, statuses, strict=True):
             self._record(zone, lamp, group_id, scene_id, content, status=status)
+        return unset
 
     async def _async_send(
         self,

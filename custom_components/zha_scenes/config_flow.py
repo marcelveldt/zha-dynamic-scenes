@@ -395,7 +395,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
             kelvin = user_input.get(CONF_WARMEST_WHITE)
             if kelvin is None:
                 corrections.pop(lamp.ieee, None)
-            elif CORRECTION_PIVOT < 1_000_000 / kelvin < lamp.max_mireds:
+            elif kelvin > 0 and CORRECTION_PIVOT < 1_000_000 / kelvin < lamp.max_mireds:
                 corrections[lamp.ieee] = round(kelvin)
             else:
                 errors[CONF_WARMEST_WHITE] = "invalid_warmest_white"

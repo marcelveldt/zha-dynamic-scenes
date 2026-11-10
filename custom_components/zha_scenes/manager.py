@@ -352,8 +352,8 @@ class ZhaScenesManager:
         transition: int,
         *,
         context: Context | None,
-    ) -> None:
-        """Set a lamp to a standard scene state through Home Assistant; a failure is logged."""
+    ) -> bool:
+        """Set a lamp to a standard scene state through Home Assistant; return whether it worked."""
         data: dict[str, Any] = {
             ATTR_ENTITY_ID: lamp.entity_id,
             ATTR_BRIGHTNESS: content.level,
@@ -367,6 +367,8 @@ class ZhaScenesManager:
             )
         except HomeAssistantError as err:
             _LOGGER.warning("Could not set %s to the scene: %s", lamp.entity_id, err)
+            return False
+        return True
 
     @callback
     def _standard_content(self, lamp: Lamp, scene: StandardScene) -> ColorTemperatureSceneContent:

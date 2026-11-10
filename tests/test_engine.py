@@ -77,16 +77,18 @@ OTHER = lamp(5, LampKind.COLOR_TEMP, signify=False, max_mireds=495)
 class Setter:
     """Records the lamps set through Home Assistant, with the requests sent before."""
 
-    def __init__(self, transport: FakeTransport) -> None:
-        """Initialize the setter."""
+    def __init__(self, transport: FakeTransport, failing: frozenset[str] = frozenset()) -> None:
+        """Initialize the setter; lamps in `failing` cannot be set."""
         self.transport = transport
+        self.failing = failing
         self.calls: list[tuple[str, ColorTemperatureSceneContent, int, int]] = []
 
     async def __call__(
         self, lamp: Lamp, content: ColorTemperatureSceneContent, transition: int
-    ) -> None:
+    ) -> bool:
         """Record a lamp being set."""
         self.calls.append((lamp.ieee, content, transition, len(self.transport.requests)))
+        return lamp.ieee not in self.failing
 
 
 @pytest.fixture(autouse=True)
@@ -584,6 +586,18 @@ async def test_unreachable_lamp_is_written_at_the_next_recall() -> None:
         CMD_STORE_SCENE,
     ]
     assert cache.stored(OTHER.ieee, GROUP, 14) == WHITE
+
+
+async def test_lamp_that_could_not_be_set_stores_nothing() -> None:
+    transport, cache, engine = _engine()
+    setter = Setter(transport, failing=frozenset({OTHER.ieee}))
+    await engine.async_recall(ZONE, 15, [(OTHER, WHITE)], setter)
+
+    # no Store Scene of the state it still had; it is set again after the recall and written
+    # at the next activation
+    assert [command for _, command, _ in transport.requests] == [CMD_ENHANCED_ADD_SCENE]
+    assert cache.stored(OTHER.ieee, GROUP, 15) is None
+    assert setter.calls == [(OTHER.ieee, WHITE, 0, 1), (OTHER.ieee, WHITE, 4, 1)]
 
 
 def test_forget_scenes_of_a_group() -> None:

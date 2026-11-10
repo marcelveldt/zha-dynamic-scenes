@@ -124,7 +124,7 @@
       }
     },
     "error": {
-      "name_taken": "Een ander palet heeft deze naam al.",
+      "name_taken": "Een standaardscène of een ander palet heeft deze naam al.",
       "invalid_colors": "Geef 2 tot 9 kleuren op als hex RGB, bijvoorbeeld #ff8800.",
       "cluster_too_small": "Een cluster heeft minstens twee lampen nodig.",
       "no_palettes": "Kies minstens één palet.",

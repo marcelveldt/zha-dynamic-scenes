@@ -334,7 +334,7 @@ async def test_lamp_correction(hass: HomeAssistant, loaded: MockConfigEntry) -> 
             "min": "2021",
             "max": "3333",
         }
-        for kelvin in (2020, 3334):
+        for kelvin in (0, 2020, 3334):
             result = await hass.config_entries.options.async_configure(
                 result["flow_id"], {"warmest_white": kelvin}
             )
