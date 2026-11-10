@@ -20,11 +20,16 @@ That gives two properties this integration builds on:
 - The stored colour decides where a lamp starts. Lamps that store the same colour and start together stay
   in sync; different colours spread the palette over the room, like Hue does.
 
+Gradient lamps (for example the Signe gradient) start from the same command, but their stored scene holds a
+gradient: up to five colours along the lamp with a style (Hue's `gradient.mode`). The Hue bridge stores it
+with another Signify Scenes command (`0x02`) that carries on, level, transition and the gradient.
+
 ## Concepts
 
 - **Palette**: colours (CIE xy with a brightness), a speed, an optional colour temperature for lamps without
-  colour, and for imported Hue scenes the start state Hue gave each lamp, keyed by IEEE address. A Hue
-  lamp keeps its IEEE address when it moves to ZHA, so the per-lamp start colours survive the move.
+  colour, and for imported Hue scenes the start state Hue gave each lamp (with its gradient for gradient
+  lamps), keyed by IEEE address. A Hue lamp keeps its IEEE address when it moves to ZHA, so the per-lamp
+  start colours survive the move.
 - **Zone**: a ZHA group. The palette start is one groupcast to the group, so all lamps start at the same
   moment.
 - **Cluster**: lamps of a zone that must share a start colour, for example a pair of lamps on both sides
@@ -54,13 +59,20 @@ Dependencies point inwards: `protocol` knows nothing else, `engine` only knows `
    the Hue effects cluster (`0xFC03`) on its light endpoint animates (`dynamic`); other lights are colour,
    colour temperature or plain lights.
 2. `engine.assign_targets` gives every cluster a start state: the Hue scene action of one of its lamps if
-   the palette has one, otherwise the next palette colour. The result only depends on the zone and the
-   palette, so a lamp starts with the same colour every time.
+   the palette has one, otherwise the next palette colour. Likewise every cluster gets a gradient: the Hue
+   gradient of one of its lamps, otherwise the first five palette colours. The result only depends on the
+   zone and the palette, so a lamp starts with the same colour every time.
 3. For the dynamic lamps, `SceneEngine` makes sure the palette's scene is stored: it gives the palette a
-   scene id and sends a unicast Enhanced Add Scene (on, level, xy) only to lamps whose stored content is
-   unknown or different. Then it sends the dynamic palette command once to the zone's group.
+   scene id and writes the scene only to lamps whose stored content is unknown or different, with a unicast
+   Enhanced Add Scene (on, level, xy) or, for gradient lamps, the Signify command (on, level, gradient).
+   Whether a lamp shows gradients is read once from the Hue effects cluster (manufacturer specific
+   attribute `0x0001`, bit `0x08`). Then it sends the dynamic palette command once to the zone's group.
 4. The other lights get a plain `light.turn_on` with their start colour or the palette's colour
-   temperature. A dynamic lamp that could not store the scene gets the same treatment.
+   temperature. A dynamic lamp that could not store the scene gets the same treatment, a gradient lamp with
+   the first colour of its gradient.
+
+Brightness percentages become levels the way the Hue bridge maps them,
+`1 + floor(percent * 253 / 100 + 0.5)`, so lamps end at the same level as under the bridge.
 
 ## Scene slots and the cache
 
@@ -73,19 +85,21 @@ groupcast. Scenes of a real group would be deleted when a lamp leaves that group
 Scenes for it. Since a lamp can be in several zones, scene ids are unique over all zones; when all are
 taken, the least recently used one is reused.
 
-The cache of slots and stored contents is kept in Home Assistant storage, next to the palette library. It
-is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp does) or was removed. The
-`rewrite_scenes` service clears a zone by hand, for scenes removed by other means.
+The cache of slots, stored contents and which lamps show gradients is kept in Home Assistant storage, next
+to the palette library. It is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp
+does) or was removed. The `rewrite_scenes` service clears a zone's scenes by hand, for scenes removed by
+other means.
 
 When a lamp's scene table is full, the zone's least recently used slot is removed from its lamps and the
 write is retried once.
 
 ## Design choices
 
-- **Transport through ZHA's zigpy application.** The dynamic command reuses the id of Add Scene, so ZHA's
-  cluster command service would encode it as Add Scene. Frames are therefore built here and sent raw: the
-  unicasts through the zigpy endpoint (so ZHA's request handling, retries and response matching apply) and
-  the groupcast through the zigpy group, like ZHA's own group commands.
+- **Transport through ZHA's zigpy application.** The dynamic command reuses the id of Add Scene and the
+  gradient scene command that of Remove Scene, so ZHA's cluster command service would encode them as those
+  standard commands. Frames are therefore built here and sent raw: the unicasts through the zigpy endpoint
+  (so ZHA's request handling, retries and response matching apply) and the groupcast through the zigpy
+  group, like ZHA's own group commands.
 - **No polling or state tracking.** Lamps do not report a running palette, so the select entity shows the
   last started palette.
 - **The library is independent of the bridge.** Imported palettes stay usable after the lamps and the bridge

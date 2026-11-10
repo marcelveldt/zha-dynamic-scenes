@@ -23,6 +23,15 @@ class LampKind(StrEnum):
     PLAIN = "plain"
 
 
+class GradientMode(StrEnum):
+    """How a gradient lamp spreads the gradient points, as Hue names it."""
+
+    INTERPOLATED_PALETTE = "interpolated_palette"
+    INTERPOLATED_PALETTE_MIRRORED = "interpolated_palette_mirrored"
+    RANDOM_PIXELATED = "random_pixelated"
+    SEGMENTED_PALETTE = "segmented_palette"
+
+
 @dataclass(frozen=True, slots=True)
 class PaletteColor:
     """
@@ -52,27 +61,50 @@ class ColorTemperature:
 
 
 @dataclass(frozen=True, slots=True)
+class Gradient:
+    """
+    Colours a gradient lamp shows along its length.
+
+    :param points: Colours as CIE xy, from one end to the other.
+    :param mode: How the lamp spreads the points.
+    """
+
+    points: tuple[tuple[float, float], ...]
+    mode: GradientMode = GradientMode.INTERPOLATED_PALETTE
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Gradient:
+        """Create from the stored dict."""
+        return cls(points=tuple((x, y) for x, y in data["points"]), mode=GradientMode(data["mode"]))
+
+
+@dataclass(frozen=True, slots=True)
 class LightAction:
     """
     State a Hue scene sets on one lamp.
 
-    :param xy: Colour, None when the lamp is set to a colour temperature.
+    :param xy: Colour, the first gradient point for a gradient, None when the lamp is set
+        to a colour temperature.
     :param mirek: Colour temperature, None when the lamp is set to a colour.
     :param brightness: Brightness in percent, None when the scene keeps it.
+    :param gradient: Gradient of a gradient lamp.
     """
 
     xy: tuple[float, float] | None = None
     mirek: int | None = None
     brightness: float | None = None
+    gradient: Gradient | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LightAction:
         """Create from the stored dict."""
         xy = data.get("xy")
+        gradient = data.get("gradient")
         return cls(
             xy=(xy[0], xy[1]) if xy else None,
             mirek=data.get("mirek"),
             brightness=data.get("brightness"),
+            gradient=Gradient.from_dict(gradient) if gradient else None,
         )
 
 

@@ -3,6 +3,7 @@
 from custom_components.zha_dynamic_scenes.engine import TransportError
 from custom_components.zha_dynamic_scenes.models import (
     ColorTemperature,
+    Gradient,
     Lamp,
     LampKind,
     LightAction,
@@ -10,11 +11,17 @@ from custom_components.zha_dynamic_scenes.models import (
     PaletteColor,
     PaletteSource,
 )
-from custom_components.zha_dynamic_scenes.protocol import STATUS_SUCCESS
+from custom_components.zha_dynamic_scenes.protocol import MANUFACTURER_SIGNIFY, STATUS_SUCCESS
 
 RED = PaletteColor(0.68, 0.31, 80.0)
 GREEN = PaletteColor(0.17, 0.70, 70.0)
 BLUE = PaletteColor(0.15, 0.06, 60.0)
+# the gradient a lamp gets from `palette()` without a Hue gradient action
+PALETTE_GRADIENT = Gradient(points=(RED.xy, GREEN.xy, BLUE.xy))
+
+# Hue features bitmaps read on ZHA: a Signe gradient and a colour lamp without gradient
+FEATURES_GRADIENT = 0x2F
+FEATURES_COLOR = 0x07
 
 
 def lamp(n: int, kind: LampKind = LampKind.DYNAMIC) -> Lamp:
@@ -47,23 +54,41 @@ def palette(
 
 
 class FakeTransport:
-    """Records frames; lamps answer SUCCESS unless told otherwise."""
+    """Records frames; lamps answer SUCCESS and have no gradient unless told otherwise."""
 
     def __init__(self) -> None:
         """Initialize the fake."""
         self.requests: list[tuple[str, int, bytes]] = []
+        # manufacturer specific (Signify) unicasts
+        self.signify_requests: list[tuple[str, int, bytes]] = []
         self.groupcasts: list[tuple[int, bytes]] = []
         # ieee -> statuses to answer in turn; None means no response
         self.answers: dict[str, list[int | None]] = {}
+        # ieee -> Hue features bitmap; None means no response
+        self.features: dict[str, int | None] = {}
+        self.feature_reads: list[str] = []
 
-    async def async_scene_request(self, lamp: Lamp, command_id: int, payload: bytes) -> int:
+    async def async_scene_request(
+        self, lamp: Lamp, command_id: int, payload: bytes, *, manufacturer: int | None = None
+    ) -> int:
         """Record a unicast and answer it."""
-        self.requests.append((lamp.ieee, command_id, payload))
+        if manufacturer is None:
+            self.requests.append((lamp.ieee, command_id, payload))
+        else:
+            assert manufacturer == MANUFACTURER_SIGNIFY
+            self.signify_requests.append((lamp.ieee, command_id, payload))
         if answers := self.answers.get(lamp.ieee):
             if (status := answers.pop(0)) is None:
                 raise TransportError("no response")
             return status
         return STATUS_SUCCESS
+
+    async def async_read_features(self, lamp: Lamp) -> int:
+        """Record a features read and answer it."""
+        self.feature_reads.append(lamp.ieee)
+        if (features := self.features.get(lamp.ieee, FEATURES_COLOR)) is None:
+            raise TransportError("no response")
+        return features
 
     async def async_start_dynamic(self, group_id: int, payload: bytes) -> None:
         """Record a groupcast."""
