@@ -152,20 +152,13 @@
     },
     "send_failed": {
       "message": "Could not start the dynamic scene: {error}"
-    },
-    "unknown_palette": {
-      "message": "Unknown palette: {palette}"
     }
   },
   "services": {
     "activate": {
       "name": "Activate",
-      "description": "Starts a palette on a zone.",
+      "description": "Starts the palette of a scene on its zone, optionally with another speed, brightness or transition.",
       "fields": {
-        "palette": {
-          "name": "Palette",
-          "description": "Name of a palette of the zone, as shown in its select entity."
-        },
         "speed": {
           "name": "Speed",
           "description": "Animation speed from 0 to 1 instead of the palette's."

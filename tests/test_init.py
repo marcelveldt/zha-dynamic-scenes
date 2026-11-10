@@ -6,28 +6,17 @@ from homeassistant.components.select import ATTR_OPTION, SERVICE_SELECT_OPTION
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
 from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_dynamic_scenes.zigbee import async_listen_scene_losses
 
-from .common import FakeTransport, lamp, palette
+from .common import FakeTransport, lamp
 from .conftest import GROUP, INTEGRATION
 
-ENTITY_ID = "select.dynamic_scene"
-
-
-@pytest.fixture
-async def loaded(hass: HomeAssistant, entry: MockConfigEntry, zha: None) -> MockConfigEntry:
-    """Set up the entry with two palettes in the library."""
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    entry.runtime_data.async_update_palettes([palette("custom:a"), palette("custom:b")])
-    await hass.async_block_till_done()
-    return entry
+ENTITY_ID = "select.zone_group_dynamic_scene"
 
 
 async def test_select_lists_and_starts_palettes(
@@ -48,51 +37,29 @@ async def test_select_lists_and_starts_palettes(
     assert len(transport.groupcasts) == 1
 
 
-async def test_activate_service(
-    hass: HomeAssistant, loaded: MockConfigEntry, transport: FakeTransport
-) -> None:
-    async_mock_service(hass, "light", "turn_on")
-    await hass.services.async_call(
-        DOMAIN,
-        "activate",
-        {ATTR_ENTITY_ID: ENTITY_ID, "palette": "custom:a", "speed": 0.25, "brightness": 50},
-        blocking=True,
-    )
-    assert hass.states.get(ENTITY_ID).state == "custom:a"
-    payload = transport.groupcasts[0][1]
-    assert payload[3] == 0x0E  # flags: brightness, palette, speed
-    assert payload[4] == 50
-    assert payload[-1] == round(0.25 * 255)
-
-    with pytest.raises(ServiceValidationError):
-        await hass.services.async_call(
-            DOMAIN,
-            "activate",
-            {ATTR_ENTITY_ID: ENTITY_ID, "palette": "nope"},
-            blocking=True,
-        )
-
-
 async def test_rewrite_scenes_service(
     hass: HomeAssistant, loaded: MockConfigEntry, transport: FakeTransport
 ) -> None:
     async_mock_service(hass, "light", "turn_on")
-    activate = {ATTR_ENTITY_ID: ENTITY_ID, "palette": "custom:a"}
-    await hass.services.async_call(DOMAIN, "activate", activate, blocking=True)
-    await hass.services.async_call(DOMAIN, "activate", activate, blocking=True)
+    select = {ATTR_ENTITY_ID: ENTITY_ID, ATTR_OPTION: "custom:a"}
+    await hass.services.async_call("select", SERVICE_SELECT_OPTION, select, blocking=True)
+    await hass.services.async_call("select", SERVICE_SELECT_OPTION, select, blocking=True)
     assert len(transport.requests) == 2
 
     await hass.services.async_call(
         DOMAIN, "rewrite_scenes", {ATTR_ENTITY_ID: ENTITY_ID}, blocking=True
     )
-    await hass.services.async_call(DOMAIN, "activate", activate, blocking=True)
+    await hass.services.async_call("select", SERVICE_SELECT_OPTION, select, blocking=True)
     assert len(transport.requests) == 4
 
 
 async def test_last_palette_is_restored(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
     async_mock_service(hass, "light", "turn_on")
     await hass.services.async_call(
-        DOMAIN, "activate", {ATTR_ENTITY_ID: ENTITY_ID, "palette": "custom:b"}, blocking=True
+        "select",
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_OPTION: "custom:b"},
+        blocking=True,
     )
     assert await hass.config_entries.async_reload(loaded.entry_id)
     await hass.async_block_till_done()

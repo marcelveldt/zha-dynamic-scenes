@@ -37,13 +37,14 @@ def lamp(n: int, kind: LampKind = LampKind.DYNAMIC) -> Lamp:
 def palette(
     palette_id: str = "custom:a",
     *,
+    name: str | None = None,
     actions: dict[str, LightAction] | None = None,
     group_name: str | None = None,
 ) -> Palette:
-    """Return a three colour palette."""
+    """Return a three colour palette, named like its id unless a name is given."""
     return Palette(
         palette_id=palette_id,
-        name=palette_id,
+        name=name or palette_id,
         source=PaletteSource.HUE if actions is not None else PaletteSource.CUSTOM,
         colors=[RED, GREEN, BLUE],
         speed=0.5,

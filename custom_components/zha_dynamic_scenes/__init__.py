@@ -17,7 +17,7 @@ from .manager import DynamicScenesManager
 from .services import async_setup_services
 from .zigbee import async_listen_scene_losses, async_zha_ready
 
-PLATFORMS = [Platform.SELECT]
+PLATFORMS = [Platform.SCENE, Platform.SELECT]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 

@@ -24,7 +24,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.util.color import color_temperature_mired_to_kelvin
 
-from .const import CONF_ZONES, DOMAIN, SIGNAL_LIBRARY_UPDATED, STORAGE_VERSION
+from .const import (
+    CONF_ZONES,
+    DOMAIN,
+    SIGNAL_LIBRARY_UPDATED,
+    SIGNAL_ZONE_ACTIVATED,
+    STORAGE_VERSION,
+)
 from .engine import (
     LampTarget,
     SceneCache,
@@ -110,7 +116,7 @@ class DynamicScenesManager:
         Start a palette on a zone.
 
         Dynamic lamps animate the palette; the other lights get a static colour or
-        colour temperature from it.
+        colour temperature from it. Then sends `SIGNAL_ZONE_ACTIVATED` for the zone.
 
         :param speed: Animation speed 0..1 instead of the palette's.
         :param brightness: Brightness 1..255 for all lamps instead of the palette's.
@@ -161,6 +167,7 @@ class DynamicScenesManager:
         for lamp, result in zip(static, results, strict=True):
             if isinstance(result, Exception):
                 _LOGGER.warning("Could not set %s to its start state: %s", lamp.entity_id, result)
+        async_dispatcher_send(self.hass, SIGNAL_ZONE_ACTIVATED.format(group_id), palette_id)
 
     @callback
     def async_update_palettes(self, palettes: Iterable[Palette]) -> None:
