@@ -62,6 +62,17 @@ entity per offered palette. `scene.turn_on` starts the palette with its own spee
 and the zone setup: scene entities of palettes a zone no longer offers are removed, also from the entity
 registry.
 
+## Blueprints
+
+`blueprints/automation/zha_dynamic_scenes/` holds automation blueprints built on these entities. Import one
+in Home Assistant under *Settings > Automations & scenes > Blueprints > Import blueprint* with its GitHub
+URL.
+
+- `tap_dial.yaml`: a Hue Tap Dial (RDM002) paired to ZHA. Buttons 1 to 3 each start a palette through
+  `activate`, with their own brightness; button 4 steps through the zone's palettes with
+  `select.select_next`. Dimming and off stay out of the automation: bind the dial to the zone's ZHA group
+  so they work without Home Assistant.
+
 ## Activating a palette
 
 1. `zigbee` resolves the zone's ZHA group to its available lights and classifies each one: a Signify colour lamp with
