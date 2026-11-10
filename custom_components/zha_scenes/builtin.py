@@ -1,4 +1,4 @@
-"""The built-in palettes shipped with the integration, and their names."""
+"""The built-in palettes and standard scenes shipped with the integration, and their names."""
 
 from __future__ import annotations
 
@@ -11,9 +11,25 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.translation import async_get_translations
 
 from .const import DOMAIN
-from .models import Palette, PaletteSource
+from .models import Palette, PaletteSource, StandardScene
 
 PALETTES_FILE = Path(__file__).parent / "palettes.json"
+
+# the white scenes of the Hue app, by key, in the order the zones offer them
+STANDARD_SCENES = {
+    scene.key: scene
+    for scene in (
+        StandardScene("dimmed", 10, 60, 370),
+        StandardScene("relax", 11, 56.25, 447),
+        StandardScene("read", 12, 100, 346),
+        StandardScene("bright", 13, 100, 370),
+        StandardScene("nightlight", 14, 10, 500),
+        StandardScene("concentrate", 15, 100, 233),
+        StandardScene("energize", 16, 100, 156),
+        StandardScene("rest", 17, 35, 500),
+        StandardScene("cool_bright", 18, 100, 250),
+    )
+}
 
 
 async def async_builtin_palettes(hass: HomeAssistant) -> dict[str, Palette]:
@@ -21,9 +37,9 @@ async def async_builtin_palettes(hass: HomeAssistant) -> dict[str, Palette]:
     return await hass.async_add_executor_job(_load_palettes)
 
 
-async def async_palette_names(hass: HomeAssistant, language: str) -> dict[str, str]:
+async def async_scene_names(hass: HomeAssistant, language: str) -> dict[str, str]:
     """
-    Return the names of the built-in palettes in a language, by id.
+    Return the names of the built-in palettes and standard scenes in a language, by id.
 
     These are the names of their scene entities; a name missing in the language is English.
     """

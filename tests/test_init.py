@@ -16,7 +16,18 @@ from custom_components.zha_scenes.zigbee import async_listen_scene_losses
 from .common import FakeTransport, lamp
 from .conftest import GROUP, INTEGRATION
 
-ENTITY_ID = "select.zone_group_dynamic_scene"
+ENTITY_ID = "select.zone_group_scene"
+STANDARD_NAMES = [
+    "Dimmed",
+    "Relax",
+    "Read",
+    "Bright",
+    "Nightlight",
+    "Concentrate",
+    "Energize",
+    "Rest",
+    "Cool bright",
+]
 
 
 async def test_select_lists_and_starts_palettes(
@@ -24,7 +35,8 @@ async def test_select_lists_and_starts_palettes(
 ) -> None:
     state = hass.states.get(ENTITY_ID)
     assert state is not None
-    assert state.attributes["options"] == ["custom:a", "custom:b"]
+    # the standard scenes, then the palettes
+    assert state.attributes["options"] == [*STANDARD_NAMES, "custom:a", "custom:b"]
     async_mock_service(hass, "light", "turn_on")
 
     await hass.services.async_call(
@@ -76,20 +88,24 @@ async def test_setup_retries_without_zha(hass: HomeAssistant, entry: MockConfigE
 
 async def test_scene_loss_signals(hass: HomeAssistant) -> None:
     lamps: list[str] = []
-    unsub = async_listen_scene_losses(hass, lamps.append)
+    groups: list[int] = []
+    unsub = async_listen_scene_losses(hass, lamps.append, groups.append)
     for message_type in ("device_joined", "device_removed", "device_fully_initialized"):
         async_dispatcher_send(
             hass,
             "zha_gateway_message",
             {"type": message_type, "device_info": {"ieee": lamp(1).ieee}},
         )
-    async_dispatcher_send(
-        hass,
-        "zha_gateway_message",
-        {"type": "group_member_removed", "group_info": {"group_id": GROUP, "members": []}},
-    )
+    for message_type in ("group_member_removed", "group_member_added"):
+        async_dispatcher_send(
+            hass,
+            "zha_gateway_message",
+            {"type": message_type, "group_info": {"group_id": GROUP, "members": []}},
+        )
     unsub()
     assert lamps == [lamp(1).ieee, lamp(1).ieee]
+    # a lamp leaving a group drops the scenes stored under it
+    assert groups == [GROUP]
 
 
 async def test_removing_the_entry_removes_its_storage(

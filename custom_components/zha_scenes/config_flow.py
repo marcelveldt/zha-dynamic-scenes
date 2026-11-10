@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import math
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -33,10 +34,12 @@ from homeassistant.util.color import color_RGB_to_xy, color_xy_to_RGB
 from homeassistant.util.ulid import ulid_now
 import probatio
 
-from .const import CONF_ZONES, DEFAULT_SPEED, DOMAIN, MIN_PALETTE_COLORS
-from .models import Palette, PaletteColor, PaletteSource, ZoneConfig
+from .const import CONF_CORRECTIONS, CONF_ZONES, DEFAULT_SPEED, DOMAIN, MIN_PALETTE_COLORS
+from .engine import CORRECTION_PIVOT
+from .models import Lamp, Palette, PaletteColor, PaletteSource, ZoneConfig
 from .protocol import MAX_PALETTE_COLORS
 from .zigbee import (
+    async_color_temperature_lights,
     async_device_lights,
     async_group_lights,
     async_group_name,
@@ -57,6 +60,7 @@ CONF_NAME = "name"
 CONF_PALETTE = "palette"
 CONF_PALETTES = "palettes"
 CONF_SPEED = "speed"
+CONF_WARMEST_WHITE = "warmest_white"
 CONF_ZONE = "zone"
 
 DEFAULT_BRIGHTNESS = 80
@@ -101,7 +105,7 @@ class ZhaScenesConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ZhaScenesOptionsFlow(OptionsFlowWithReload):
-    """Edit custom palettes, configure zones and their clusters."""
+    """Edit custom palettes, configure zones and their clusters, and correct lamps."""
 
     def __init__(self) -> None:
         """Initialize the flow."""
@@ -109,6 +113,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         self._zones: dict[str, ZoneConfig] = {}
         self._zone: ZoneConfig | None = None
         self._palette_id: str | None = None
+        self._lamp: Lamp | None = None
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Show what can be changed."""
@@ -125,6 +130,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         menu.append("add_zone")
         if self._zones:
             menu.append("edit_zone")
+        menu.append("lamp_correction")
         return self.async_show_menu(step_id="init", menu_options=menu)
 
     async def async_step_add_palette(
@@ -355,6 +361,73 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         """Save the zone."""
         return self._async_save()
 
+    async def async_step_lamp_correction(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the light whose warmest white to correct."""
+        lamps = async_color_temperature_lights(self.hass)
+        if not lamps:
+            return self.async_abort(reason="no_color_temperature_lights")
+        if user_input is not None:
+            self._lamp = lamps[user_input[CONF_LIGHT]]
+            return await self.async_step_warmest_white()
+        return self.async_show_form(
+            step_id="lamp_correction",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_LIGHT): EntitySelector(
+                        EntitySelectorConfig(include_entities=list(lamps))
+                    )
+                }
+            ),
+        )
+
+    async def async_step_warmest_white(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Set or clear the warmest white the light really shows, and save."""
+        assert self._lamp is not None
+        lamp = self._lamp
+        assert lamp.max_mireds is not None  # only lights with colour temperature are offered
+        corrections: dict[str, int] = dict(self._options.get(CONF_CORRECTIONS, {}))
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            kelvin = user_input.get(CONF_WARMEST_WHITE)
+            if kelvin is None:
+                corrections.pop(lamp.ieee, None)
+            elif CORRECTION_PIVOT < 1_000_000 / kelvin < lamp.max_mireds:
+                corrections[lamp.ieee] = round(kelvin)
+            else:
+                errors[CONF_WARMEST_WHITE] = "invalid_warmest_white"
+            if not errors:
+                self._options[CONF_CORRECTIONS] = corrections
+                return self._async_save()
+        schema = probatio.Schema(
+            {
+                probatio.Optional(CONF_WARMEST_WHITE): NumberSelector(
+                    NumberSelectorConfig(
+                        step=1, unit_of_measurement="K", mode=NumberSelectorMode.BOX
+                    )
+                )
+            }
+        )
+        current = corrections.get(lamp.ieee)
+        state = self.hass.states.get(lamp.entity_id)
+        return self.async_show_form(
+            step_id="warmest_white",
+            data_schema=self.add_suggested_values_to_schema(
+                schema,
+                user_input or ({} if current is None else {CONF_WARMEST_WHITE: current}),
+            ),
+            errors=errors,
+            description_placeholders={
+                "light": state.name if state else lamp.entity_id,
+                # the valid whole Kelvin values
+                "min": str(math.floor(1_000_000 / lamp.max_mireds) + 1),
+                "max": str(math.ceil(1_000_000 / CORRECTION_PIVOT) - 1),
+            },
+        )
+
     @property
     def _manager(self) -> ZhaScenesManager:
         """Return the running manager."""
@@ -378,12 +451,17 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
 
     @callback
     def _name_taken(self, name: str, palette: Palette | None) -> bool:
-        """Return whether another palette already shows this name; zones list palettes by name."""
-        return any(
-            self._manager.palette_name(other).casefold() == name.casefold()
+        """
+        Return whether a standard scene or another palette already shows this name.
+
+        Zones list their scenes by name.
+        """
+        taken = [*self._manager.standard_scene_names().values()] + [
+            self._manager.palette_name(other)
             for other in self._manager.palettes.values()
             if palette is None or other.palette_id != palette.palette_id
-        )
+        ]
+        return name.casefold() in {other.casefold() for other in taken}
 
     @callback
     def _async_palette_form(

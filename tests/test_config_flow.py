@@ -11,8 +11,8 @@ from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, get_schema_suggested_value
 
-from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_scenes.models import PaletteSource
+from custom_components.zha_scenes.const import CONF_CORRECTIONS, CONF_ZONES, DOMAIN
+from custom_components.zha_scenes.models import LampKind, PaletteSource
 
 from .common import lamp, palette
 from .conftest import GROUP, INTEGRATION, ZONE_ID
@@ -75,6 +75,12 @@ async def test_custom_palette_add_edit_delete(
         {"name": "blossom", "colors": "#ff0000,#0000ff", "speed": 0.4, "brightness": 50},
     )
     assert result["errors"] == {"name": "name_taken"}
+    # nor the name of a standard scene
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"name": "relax", "colors": "#ff0000,#0000ff", "speed": 0.4, "brightness": 50},
+    )
+    assert result["errors"] == {"name": "name_taken"}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"name": "Renamed", "colors": "#ff0000,#0000ff,#00ff00", "speed": 1, "brightness": 20},
@@ -118,7 +124,7 @@ async def test_remove_custom_palettes(hass: HomeAssistant, empty_entry: MockConf
     manager = empty_entry.runtime_data
     result = await hass.config_entries.options.async_init(empty_entry.entry_id)
     # built-in palettes can be neither edited nor removed
-    assert result["menu_options"] == ["add_palette", "add_zone"]
+    assert result["menu_options"] == ["add_palette", "add_zone", "lamp_correction"]
 
     manager.async_update_palettes([palette("custom:a", name="Mine"), palette("custom:b")])
     result = await _menu(hass, empty_entry, "remove_palettes")
@@ -187,7 +193,7 @@ async def test_add_zone_with_cluster(
         }
     ]
     await hass.async_block_till_done()
-    assert hass.states.get("select.dynamic_scene") is not None
+    assert hass.states.get("select.scene") is not None
     assert hass.states.get("scene.rolling_hills") is not None
     # storage keys are built from the group id, so it must not stay zigpy's hex printing type
     assert type(empty_entry.runtime_data.zones[ZONE_ID].group_id) is int
@@ -252,7 +258,7 @@ async def test_add_single_light_zone(
             }
         ]
         await hass.async_block_till_done()
-        assert hass.states.get("select.dynamic_scene") is not None
+        assert hass.states.get("select.scene") is not None
 
         # the light is a zone now, the group is still free
         result = await _menu(hass, empty_entry, "add_zone")
@@ -306,6 +312,58 @@ async def test_delete_zone_whose_light_is_gone(
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ZONES] == []
+
+
+async def test_lamp_correction(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    controller = lamp(3, LampKind.COLOR_TEMP, signify=False, max_mireds=495)
+    hass.states.async_set("light.lamp_03", "on", {"friendly_name": "Strip"})
+    zones = loaded.options[CONF_ZONES]
+    with patch(
+        f"{INTEGRATION}.config_flow.async_color_temperature_lights",
+        return_value={"light.lamp_03": controller},
+    ):
+        result = await _menu(hass, loaded, "lamp_correction")
+        assert _field(result, "light").config["include_entities"] == ["light.lamp_03"]
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"light": "light.lamp_03"}
+        )
+        assert result["step_id"] == "warmest_white"
+        # whole Kelvin values warmer than 300 mired and colder than the warmest setting
+        assert result["description_placeholders"] == {
+            "light": "Strip",
+            "min": "2021",
+            "max": "3333",
+        }
+        for kelvin in (2020, 3334):
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], {"warmest_white": kelvin}
+            )
+            assert result["errors"] == {"warmest_white": "invalid_warmest_white"}
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"warmest_white": 2237.0}
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["data"] == {CONF_ZONES: zones, CONF_CORRECTIONS: {controller.ieee: 2237}}
+        await hass.async_block_till_done()
+
+        # the current correction is shown, and an empty value clears it
+        result = await _menu(hass, loaded, "lamp_correction")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"light": "light.lamp_03"}
+        )
+        assert get_schema_suggested_value(result["data_schema"].schema, "warmest_white") == 2237
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["data"] == {CONF_ZONES: zones, CONF_CORRECTIONS: {}}
+
+
+async def test_lamp_correction_without_colour_temperature_lights(
+    hass: HomeAssistant, empty_entry: MockConfigEntry
+) -> None:
+    with patch(f"{INTEGRATION}.config_flow.async_color_temperature_lights", return_value={}):
+        result = await _menu(hass, empty_entry, "lamp_correction")
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_color_temperature_lights"
 
 
 def _field(result: dict, key: str) -> Any:

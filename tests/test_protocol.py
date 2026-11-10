@@ -4,16 +4,22 @@ import pytest
 
 from custom_components.zha_scenes.protocol import (
     CMD_ADD_HUE_SCENE,
+    CMD_DYNAMIC_PALETTE,
     MANUFACTURER_SIGNIFY,
+    ColorTemperatureSceneContent,
     GradientSceneContent,
     SceneContent,
+    add_color_temperature_scene_payload,
+    add_empty_scene_payload,
     add_scene_payload,
-    dynamic_palette_frame,
     dynamic_palette_payload,
     gradient_scene_payload,
     level_from_percent,
+    move_to_level_payload,
     pack_palette_xy,
+    recall_scene_payload,
     remove_scene_payload,
+    store_scene_payload,
     zcl_frame,
 )
 
@@ -114,7 +120,14 @@ def test_dynamic_palette_payload_matches_bridge(
 
 def test_dynamic_palette_frame_header() -> None:
     payload = dynamic_palette_payload(0x0000, 0x6D, BLOSSOM, speed=SPEED_GALLERY)
-    frame = dynamic_palette_frame(0x2A, payload)
+    frame = zcl_frame(
+        0x2A,
+        CMD_DYNAMIC_PALETTE,
+        payload,
+        manufacturer=MANUFACTURER_SIGNIFY,
+        disable_default_response=True,
+    )
+    # cluster and manufacturer specific without default response, Signify, tsn, command 0x00
     assert frame == bytes.fromhex("150b102a00") + payload
 
 
@@ -154,6 +167,44 @@ def test_add_scene_frame() -> None:
 
 def test_remove_scene_payload() -> None:
     assert remove_scene_payload(0xDD92, 0x80).hex() == "92dd80"
+
+
+def test_add_color_temperature_scene_payload() -> None:
+    content = ColorTemperatureSceneContent(level=0x8F, mireds=447)
+    assert (
+        add_color_temperature_scene_payload(0xDD92, 0x0B, content, 4).hex()
+        == (
+            "92dd0b" + "0400" + "00"  # group, scene, transition, empty name
+            "0600" + "01" + "01"  # on/off: on
+            "0800" + "01" + "8f"  # level
+            # colour, as Hue lamps report their stored scenes: x, y, enhanced hue, saturation,
+            # loop active, loop direction, loop time, colour temperature
+            "0003" + "0d" + "0000" + "0000" + "0000" + "00" + "00" + "00" + "0000" + "bf01"
+        )
+    )
+
+
+def test_add_color_temperature_scene_payload_without_colour_temperature() -> None:
+    content = ColorTemperatureSceneContent(level=0x8F, mireds=None)
+    assert add_color_temperature_scene_payload(0xDD92, 0x0B, content, 4).hex() == (
+        "92dd0b" + "0400" + "00" + "0600" + "01" + "01" + "0800" + "01" + "8f"
+    )
+
+
+def test_store_scene_payloads() -> None:
+    # group, scene, transition, empty name and no state: Store Scene fills it in
+    assert add_empty_scene_payload(0xDD92, 0x0A, 4).hex() == "92dd0a" + "0400" + "00"
+    assert store_scene_payload(0xDD92, 0x0A).hex() == "92dd0a"
+
+
+def test_recall_scene_payload() -> None:
+    assert recall_scene_payload(0xDD92, 0x0A).hex() == "92dd0a"
+    assert recall_scene_payload(0xDD92, 0x0A, 25).hex() == "92dd0a" + "1900"
+
+
+def test_move_to_level_payload() -> None:
+    assert move_to_level_payload(0xC8, 4).hex() == "c8" + "0400"
+    assert move_to_level_payload(255, 15).hex() == "fe" + "0f00"
 
 
 @pytest.mark.parametrize(

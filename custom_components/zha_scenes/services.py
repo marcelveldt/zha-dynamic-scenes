@@ -14,7 +14,7 @@ from .const import ATTR_SPEED, DOMAIN, SERVICE_ACTIVATE, SERVICE_REWRITE_SCENES
 
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
-    """Register `activate` for the palette scenes and `rewrite_scenes` for the zone selects."""
+    """Register `activate` for the zone scenes and `rewrite_scenes` for the zone selects."""
     service.async_register_platform_entity_service(
         hass,
         DOMAIN,
