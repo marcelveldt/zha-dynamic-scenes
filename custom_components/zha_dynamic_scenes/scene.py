@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.light import ATTR_BRIGHTNESS
-from homeassistant.components.scene import ATTR_TRANSITION, DOMAIN as SCENE_DOMAIN, Scene
+from homeassistant.components.scene import ATTR_TRANSITION, DOMAIN as SCENE_DOMAIN, BaseScene
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device import async_entity_id_to_device
@@ -13,7 +13,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DynamicScenesConfigEntry
-from .const import ATTR_SPEED, SIGNAL_LIBRARY_UPDATED
+from .const import ATTR_SPEED, SIGNAL_LIBRARY_UPDATED, SIGNAL_ZONE_ACTIVATED
 from .manager import DynamicScenesManager
 from .models import Palette, ZoneConfig
 
@@ -58,8 +58,13 @@ async def async_setup_entry(
     )
 
 
-class ZonePaletteScene(Scene):
-    """A palette of a zone; activating it starts the palette on the zone."""
+class ZonePaletteScene(BaseScene):
+    """
+    A palette of a zone; activating it starts the palette on the zone.
+
+    The state is the time the palette last started on the zone, also when the zone's
+    select started it.
+    """
 
     _attr_has_entity_name = True
 
@@ -79,15 +84,20 @@ class ZonePaletteScene(Scene):
         self.device_entry = async_entity_id_to_device(hass, zone.entity_id)
 
     async def async_added_to_hass(self) -> None:
-        """Follow renames of the palette."""
+        """Follow renames of the palette and starts of the zone."""
         await super().async_added_to_hass()
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass, SIGNAL_LIBRARY_UPDATED, self._handle_library_updated
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ZONE_ACTIVATED.format(self._group_id), self._handle_activated
+            )
+        )
 
-    async def async_activate(self, **kwargs: Any) -> None:  # noqa: ANN401
+    async def _async_activate(self, **kwargs: Any) -> None:  # noqa: ANN401
         """
         Start the palette on the zone.
 
@@ -102,6 +112,13 @@ class ZonePaletteScene(Scene):
             transition=kwargs.get(ATTR_TRANSITION),
             context=self._context,
         )
+
+    @callback
+    def _handle_activated(self, palette_id: str) -> None:
+        """Record a successful start of this palette, whichever entity started it."""
+        if palette_id == self._palette_id:
+            self._async_record_activation()
+            self.async_write_ha_state()
 
     @callback
     def _handle_library_updated(self) -> None:

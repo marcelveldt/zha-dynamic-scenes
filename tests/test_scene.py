@@ -1,15 +1,18 @@
 """The scene entities of the zones' palettes and the activate service."""
 
 import logging
+from unittest.mock import AsyncMock
 
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import probatio
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
 from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
+from custom_components.zha_dynamic_scenes.engine import TransportError
 from custom_components.zha_dynamic_scenes.models import Palette
 from custom_components.zha_dynamic_scenes.protocol import dynamic_palette_payload
 
@@ -102,6 +105,27 @@ async def test_select_shows_the_palette_started_last(
 
     await hass.services.async_call(DOMAIN, "activate", {ATTR_ENTITY_ID: SCENE_A}, blocking=True)
     assert hass.states.get(SELECT).state == "custom:a"
+
+
+async def test_scene_records_starts_from_the_select(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    async_mock_service(hass, "light", "turn_on")
+    await hass.services.async_call(
+        "select", "select_option", {ATTR_ENTITY_ID: SELECT, "option": "custom:b"}, blocking=True
+    )
+    assert hass.states.get(SCENE_B).state != STATE_UNKNOWN
+    assert hass.states.get(SCENE_A).state == STATE_UNKNOWN
+
+
+async def test_failed_start_is_not_recorded(
+    hass: HomeAssistant, loaded: MockConfigEntry, transport: FakeTransport
+) -> None:
+    async_mock_service(hass, "light", "turn_on")
+    transport.async_start_dynamic = AsyncMock(side_effect=TransportError("down"))  # type: ignore[method-assign]
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call("scene", "turn_on", {ATTR_ENTITY_ID: SCENE_A}, blocking=True)
+    assert hass.states.get(SCENE_A).state == STATE_UNKNOWN
 
 
 async def test_scenes_follow_the_library(
