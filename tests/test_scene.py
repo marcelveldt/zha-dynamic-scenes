@@ -4,7 +4,7 @@ import logging
 from unittest.mock import AsyncMock
 
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import probatio
@@ -111,11 +111,29 @@ async def test_scene_records_starts_from_the_select(
     hass: HomeAssistant, loaded: MockConfigEntry
 ) -> None:
     async_mock_service(hass, "light", "turn_on")
+    context = Context()
     await hass.services.async_call(
-        "select", "select_option", {ATTR_ENTITY_ID: SELECT, "option": "custom:b"}, blocking=True
+        "select",
+        "select_option",
+        {ATTR_ENTITY_ID: SELECT, "option": "custom:b"},
+        blocking=True,
+        context=context,
     )
     assert hass.states.get(SCENE_B).state != STATE_UNKNOWN
+    assert hass.states.get(SCENE_B).context.id == context.id
     assert hass.states.get(SCENE_A).state == STATE_UNKNOWN
+
+
+async def test_select_takes_the_context_of_a_scene_start(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    async_mock_service(hass, "light", "turn_on")
+    context = Context()
+    await hass.services.async_call(
+        "scene", "turn_on", {ATTR_ENTITY_ID: SCENE_A}, blocking=True, context=context
+    )
+    assert hass.states.get(SELECT).state == "custom:a"
+    assert hass.states.get(SELECT).context.id == context.id
 
 
 async def test_failed_start_is_not_recorded(

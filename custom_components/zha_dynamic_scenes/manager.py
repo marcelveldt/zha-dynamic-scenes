@@ -173,7 +173,9 @@ class DynamicScenesManager:
                     _LOGGER.warning(
                         "Could not set %s to its start state: %s", lamp.entity_id, result
                     )
-            async_dispatcher_send(self.hass, SIGNAL_ZONE_ACTIVATED.format(group_id), palette_id)
+            async_dispatcher_send(
+                self.hass, SIGNAL_ZONE_ACTIVATED.format(group_id), palette_id, context
+            )
 
     @callback
     def async_update_palettes(self, palettes: Iterable[Palette]) -> None:

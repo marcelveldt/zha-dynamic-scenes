@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.components.scene import ATTR_TRANSITION, DOMAIN as SCENE_DOMAIN, BaseScene
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -114,9 +114,11 @@ class ZonePaletteScene(BaseScene):
         )
 
     @callback
-    def _handle_activated(self, palette_id: str) -> None:
+    def _handle_activated(self, palette_id: str, context: Context | None) -> None:
         """Record a successful start of this palette, whichever entity started it."""
         if palette_id == self._palette_id:
+            if context is not None:
+                self.async_set_context(context)
             self._async_record_activation()
             self.async_write_ha_state()
 

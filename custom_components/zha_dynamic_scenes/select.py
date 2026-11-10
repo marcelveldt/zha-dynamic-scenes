@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -85,8 +85,10 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         self._manager.async_rewrite_zone(self._zone.group_id)
 
     @callback
-    def _handle_activated(self, palette_id: str) -> None:
+    def _handle_activated(self, palette_id: str, context: Context | None) -> None:
         """Show the palette that was started last."""
+        if context is not None:
+            self.async_set_context(context)
         self._attr_current_option = next(
             (label for label, pid in self._palette_ids.items() if pid == palette_id),
             None,

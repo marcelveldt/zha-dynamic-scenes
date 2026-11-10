@@ -208,7 +208,9 @@ async def test_activations_of_a_zone_run_one_after_another(
     manager = await DynamicScenesManager.async_load(hass, entry)
     manager.async_update_palettes([palette("custom:a"), palette("custom:b")])
     started: list[str] = []
-    async_dispatcher_connect(hass, SIGNAL_ZONE_ACTIVATED.format(GROUP), started.append)
+    async_dispatcher_connect(
+        hass, SIGNAL_ZONE_ACTIVATED.format(GROUP), lambda palette_id, _: started.append(palette_id)
+    )
     release = asyncio.Event()
     first_waits = asyncio.Event()
     blocked: list[str] = []
