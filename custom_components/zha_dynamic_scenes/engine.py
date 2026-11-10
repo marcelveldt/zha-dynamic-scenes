@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 import contextlib
 from dataclasses import dataclass
 import itertools
 import logging
 from typing import Any, Protocol
 
-from .models import Gradient, Lamp, LightAction, Palette, PaletteColor, ZoneConfig
+from .models import Gradient, Lamp, Palette, ZoneConfig
 from .protocol import (
     CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
@@ -105,10 +105,9 @@ def assign_targets(
     Return the start state of every lamp, keyed by IEEE.
 
     Lamps of a cluster share one start state; every other lamp is a cluster of its own.
-    A cluster takes the Hue scene action of its first lamp that has one, the other clusters
-    get the palette colours in turn. Likewise a cluster takes the Hue gradient of its first
-    lamp that has one; the other clusters get the palette colours as gradient. The result
-    only depends on the input, so lamps keep their start colour across activations.
+    The clusters get the palette colours in turn and gradient lamps show the palette
+    colours as gradient. The result only depends on the input, so lamps keep their start
+    colour across activations.
 
     :param lamps: Lamps of the zone.
     :param clusters: Lists of IEEEs that must share a start colour.
@@ -131,12 +130,14 @@ def assign_targets(
     palette_gradient = Gradient(
         points=tuple(color.xy for color in palette.colors[:MAX_GRADIENT_POINTS])
     )
+    mirek = palette.color_temperature.mirek if palette.color_temperature else None
     targets: dict[str, LampTarget] = {}
     for unit in units:
-        actions = [palette.actions[i] for i in unit if i in palette.actions]
-        action = actions[0] if actions else None
-        gradient = next((a.gradient for a in actions if a.gradient), palette_gradient)
-        targets.update(dict.fromkeys(unit, _target(palette, action, gradient, spread)))
+        color = next(spread)
+        target = LampTarget(
+            xy=color.xy, brightness=color.brightness, gradient=palette_gradient, mirek=mirek
+        )
+        targets.update(dict.fromkeys(unit, target))
     return targets
 
 
@@ -408,25 +409,6 @@ class SceneEngine:
             _LOGGER.debug("Cannot read the Hue features of %s: %s", lamp.entity_id, err)
             return
         self._cache.set_gradient(lamp.ieee, bool(features & FEATURE_GRADIENT))
-
-
-def _target(
-    palette: Palette,
-    action: LightAction | None,
-    gradient: Gradient,
-    spread: Iterator[PaletteColor],
-) -> LampTarget:
-    """Return the start state for a Hue scene action, or the next palette colour."""
-    if action is not None and action.xy is not None:
-        xy, brightness = action.xy, palette.colors[0].brightness
-    else:
-        color = next(spread)
-        xy, brightness = color.xy, color.brightness
-    mirek = palette.color_temperature.mirek if palette.color_temperature else None
-    if action is not None:
-        brightness = action.brightness if action.brightness is not None else brightness
-        mirek = action.mirek or mirek
-    return LampTarget(xy=xy, brightness=brightness, gradient=gradient, mirek=mirek)
 
 
 def _content_to_json(content: StoredContent) -> list[int] | dict[str, Any]:

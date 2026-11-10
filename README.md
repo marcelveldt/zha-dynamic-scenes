@@ -27,9 +27,8 @@ with another Signify Scenes command (`0x02`) that carries on, level, transition 
 ## Concepts
 
 - **Palette**: colours (CIE xy with a brightness), a speed, an optional colour temperature for lamps without
-  colour, and for imported Hue scenes the start state Hue gave each lamp (with its gradient for gradient
-  lamps), keyed by IEEE address. A Hue lamp keeps its IEEE address when it moves to ZHA, so the per-lamp
-  start colours survive the move.
+  colour, and for imported Hue scenes the IEEE addresses of the scene's lamps, which decide the zones that
+  offer it. A Hue lamp keeps its IEEE address when it moves to ZHA.
 - **Zone**: a ZHA group. The palette start is one groupcast to the group, so all lamps start at the same
   moment. A zone can also be a single ZHA light (ZHA makes no group light for a group of one): its palette
   start is a unicast to the lamp, and it has no clusters.
@@ -79,10 +78,9 @@ URL.
 1. `zigbee` resolves the zone's ZHA group (or its single light) to its available lights and classifies
    each one: a Signify colour lamp with the Hue effects cluster (`0xFC03`) on its light endpoint animates
    (`dynamic`); other lights are colour, colour temperature or plain lights.
-2. `engine.assign_targets` gives every cluster a start state: the Hue scene action of one of its lamps if
-   the palette has one, otherwise the next palette colour. Likewise every cluster gets a gradient: the Hue
-   gradient of one of its lamps, otherwise the first five palette colours. The result only depends on the
-   zone and the palette, so a lamp starts with the same colour every time.
+2. `engine.assign_targets` gives every cluster the next palette colour as start colour, and gradient lamps
+   the first five palette colours as gradient. The result only depends on the zone and the palette, so a
+   lamp starts with the same colour every time.
 3. For the dynamic lamps, `SceneEngine` makes sure the palette's scene is stored: it gives the palette a
    scene id and writes the scene only to lamps whose stored content is unknown or different, with a unicast
    Enhanced Add Scene (on, level, xy) or, for gradient lamps, the Signify command (on, level, gradient).

@@ -6,7 +6,6 @@ from custom_components.zha_dynamic_scenes.models import (
     Gradient,
     Lamp,
     LampKind,
-    LightAction,
     Palette,
     PaletteColor,
     PaletteSource,
@@ -16,7 +15,7 @@ from custom_components.zha_dynamic_scenes.protocol import MANUFACTURER_SIGNIFY, 
 RED = PaletteColor(0.68, 0.31, 80.0)
 GREEN = PaletteColor(0.17, 0.70, 70.0)
 BLUE = PaletteColor(0.15, 0.06, 60.0)
-# the gradient a lamp gets from `palette()` without a Hue gradient action
+# the gradient a gradient lamp gets from `palette()`
 PALETTE_GRADIENT = Gradient(points=(RED.xy, GREEN.xy, BLUE.xy))
 
 # Hue features bitmaps read on ZHA: a Signe gradient and a colour lamp without gradient
@@ -38,19 +37,19 @@ def palette(
     palette_id: str = "custom:a",
     *,
     name: str | None = None,
-    actions: dict[str, LightAction] | None = None,
+    lamps: list[str] | None = None,
     group_name: str | None = None,
 ) -> Palette:
     """Return a three colour palette, named like its id unless a name is given."""
     return Palette(
         palette_id=palette_id,
         name=name or palette_id,
-        source=PaletteSource.HUE if actions is not None else PaletteSource.CUSTOM,
+        source=PaletteSource.HUE if lamps is not None else PaletteSource.CUSTOM,
         colors=[RED, GREEN, BLUE],
         speed=0.5,
         color_temperature=ColorTemperature(mirek=400, brightness=50.0),
         group_name=group_name,
-        actions=actions or {},
+        lamps=lamps or [],
     )
 
 

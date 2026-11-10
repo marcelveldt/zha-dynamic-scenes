@@ -17,8 +17,6 @@ from custom_components.zha_dynamic_scenes.engine import (
 from custom_components.zha_dynamic_scenes.models import (
     Gradient,
     GradientMode,
-    LampKind,
-    LightAction,
     PaletteColor,
     ZoneConfig,
 )
@@ -87,54 +85,19 @@ def test_assign_ignores_unknown_and_duplicate_cluster_members() -> None:
     assert targets[lamp(2).ieee].xy == GREEN.xy
 
 
-def test_assign_uses_hue_actions() -> None:
-    lamps = [lamp(1), lamp(2), lamp(3, LampKind.COLOR_TEMP), lamp(4)]
-    actions = {
-        lamp(2).ieee: LightAction(xy=(0.4, 0.4), brightness=33.0),
-        lamp(3).ieee: LightAction(mirek=250, brightness=44.0),
-    }
-    targets = assign_targets(lamps, [], palette("hue:x", actions=actions))
-    assert targets[lamp(2).ieee] == LampTarget(
-        xy=(0.4, 0.4), brightness=33.0, gradient=PALETTE_GRADIENT, mirek=400
-    )
-    # a colour temperature action keeps its own brightness and mirek; the colour is spread
-    assert targets[lamp(3).ieee] == LampTarget(
-        xy=GREEN.xy, brightness=44.0, gradient=PALETTE_GRADIENT, mirek=250
-    )
-    assert targets[lamp(1).ieee].xy == RED.xy
-    assert targets[lamp(4).ieee].xy == BLUE.xy
-
-
-def test_assign_cluster_takes_action_of_a_member() -> None:
-    lamps = [lamp(1), lamp(2), lamp(3)]
-    actions = {lamp(3).ieee: LightAction(xy=(0.5, 0.4), brightness=10.0)}
-    targets = assign_targets(
-        lamps, [[lamp(1).ieee, lamp(3).ieee]], palette("hue:x", actions=actions)
-    )
-    assert targets[lamp(1).ieee] == targets[lamp(3).ieee]
-    assert targets[lamp(1).ieee].xy == (0.5, 0.4)
-    assert targets[lamp(2).ieee].xy == RED.xy
-
-
-def test_assign_cluster_takes_gradient_of_a_member() -> None:
-    lamps = [lamp(1), lamp(2), lamp(3), lamp(4)]
-    gradient = Gradient(points=((0.6, 0.3), (0.2, 0.7)), mode=GradientMode.SEGMENTED_PALETTE)
-    actions = {
-        # the cluster's first action has no gradient: the colour and the gradient come
-        # from different members
-        lamp(1).ieee: LightAction(xy=(0.5, 0.4), brightness=10.0),
-        lamp(3).ieee: LightAction(xy=(0.6, 0.3), brightness=20.0, gradient=gradient),
-        lamp(4).ieee: LightAction(xy=(0.3, 0.3)),
-    }
-    targets = assign_targets(
-        lamps, [[lamp(1).ieee, lamp(3).ieee]], palette("hue:x", actions=actions)
-    )
-    assert targets[lamp(1).ieee] == targets[lamp(3).ieee]
-    assert targets[lamp(1).ieee].xy == (0.5, 0.4)
-    assert targets[lamp(1).ieee].gradient == gradient
-    # lamps without a Hue gradient get the palette colours as gradient
-    assert targets[lamp(2).ieee].gradient == PALETTE_GRADIENT
-    assert targets[lamp(4).ieee].gradient == PALETTE_GRADIENT
+def test_assign_clusters_get_the_palette_colours_in_turn() -> None:
+    lamps = [lamp(n) for n in range(1, 6)]
+    clusters = [[lamp(1).ieee, lamp(2).ieee], [lamp(3).ieee, lamp(4).ieee]]
+    # the lamps of the Hue scene do not change the start colours
+    targets = assign_targets(lamps, clusters, palette("hue:x", lamps=[lamp(3).ieee]))
+    assert [targets[lamp(n).ieee].xy for n in range(1, 6)] == [
+        RED.xy,
+        RED.xy,
+        GREEN.xy,
+        GREEN.xy,
+        BLUE.xy,
+    ]
+    assert {targets[lamp(n).ieee].gradient for n in range(1, 6)} == {PALETTE_GRADIENT}
 
 
 def test_assign_palette_gradient_takes_the_first_five_colours() -> None:

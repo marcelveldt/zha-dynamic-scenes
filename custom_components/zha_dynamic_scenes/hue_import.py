@@ -8,15 +8,7 @@ from typing import Any
 import aiohttp
 
 from .const import MIN_PALETTE_COLORS
-from .models import (
-    ColorTemperature,
-    Gradient,
-    GradientMode,
-    LightAction,
-    Palette,
-    PaletteColor,
-    PaletteSource,
-)
+from .models import ColorTemperature, Palette, PaletteColor, PaletteSource
 from .protocol import MAX_PALETTE_COLORS
 
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
@@ -62,8 +54,8 @@ def parse_palettes(resources: list[dict[str, Any]]) -> list[Palette]:
     Return the dynamic scene palettes in a CLIP v2 resource listing.
 
     Scenes with fewer than two palette colours (Hue's static "Rest" and "Nightlight"
-    style scenes) are skipped. Per-light actions are keyed by the lamp's IEEE address,
-    which is the same address the lamp has in ZHA.
+    style scenes) are skipped. A palette lists its lamps by IEEE address, which is the
+    same address the lamp has in ZHA.
 
     :param resources: The `data` list of `GET /clip/v2/resource`.
     """
@@ -109,32 +101,11 @@ def parse_palettes(resources: list[dict[str, Any]]) -> list[Palette]:
                 if color_temperature
                 else None,
                 group_name=group_names.get(scene["group"]["rid"]),
-                actions={
-                    ieee_by_light[action["target"]["rid"]]: _light_action(action["action"])
+                lamps=[
+                    ieee_by_light[action["target"]["rid"]]
                     for action in scene["actions"]
                     if action["target"]["rid"] in ieee_by_light
-                },
+                ],
             )
         )
     return palettes
-
-
-def _light_action(action: dict[str, Any]) -> LightAction:
-    """Return the start state of one lamp from a scene action."""
-    xy, gradient = None, None
-    if "color" in action:
-        xy = action["color"]["xy"]
-    elif points := action.get("gradient", {}).get("points"):
-        xy = points[0]["color"]["xy"]
-        gradient = Gradient(
-            points=tuple(
-                (point["color"]["xy"]["x"], point["color"]["xy"]["y"]) for point in points
-            ),
-            mode=GradientMode(action["gradient"]["mode"]),
-        )
-    return LightAction(
-        xy=(xy["x"], xy["y"]) if xy else None,
-        mirek=action.get("color_temperature", {}).get("mirek"),
-        brightness=action.get("dimming", {}).get("brightness"),
-        gradient=gradient,
-    )

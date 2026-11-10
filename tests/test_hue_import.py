@@ -15,9 +15,6 @@ from custom_components.zha_dynamic_scenes.hue_import import (
 )
 from custom_components.zha_dynamic_scenes.models import (
     ColorTemperature,
-    Gradient,
-    GradientMode,
-    LightAction,
     Palette,
     PaletteColor,
     PaletteSource,
@@ -50,30 +47,26 @@ def test_parse_palettes() -> None:
         color_temperature=ColorTemperature(mirek=400, brightness=80.0),
         group_name="Ambience",
         # light-4 has no Zigbee connectivity, so no IEEE
-        actions={
-            IEEE_2: LightAction(xy=(0.5, 0.4), brightness=40.0),
-            IEEE_3: LightAction(mirek=366, brightness=60.0),
-        },
+        lamps=[IEEE_2, IEEE_3],
     )
     gradient = palettes["hue:scene-gradient"]
     assert gradient.group_name == "Living room"
     assert gradient.color_temperature is None
-    assert gradient.actions == {
-        IEEE_1: LightAction(
-            xy=(0.2, 0.5),
-            brightness=90.0,
-            gradient=Gradient(
-                points=((0.2, 0.5), (0.3, 0.2), (0.4, 0.4)), mode=GradientMode.SEGMENTED_PALETTE
-            ),
-        ),
-        IEEE_2: LightAction(),
-    }
+    assert gradient.lamps == [IEEE_1, IEEE_2]
     assert gradient.label == "Aurora (Living room)"
 
 
 def test_palette_survives_storage_round_trip() -> None:
     for palette in parse_palettes(_resources()["data"]):
         assert Palette.from_dict(json.loads(json.dumps(palette.to_dict()))) == palette
+
+
+def test_palette_reads_lamps_from_stored_start_states() -> None:
+    palette = next(iter(parse_palettes(_resources()["data"])))
+    stored = palette.to_dict()
+    del stored["lamps"]
+    stored["actions"] = {IEEE_1: {"xy": [0.2, 0.5], "brightness": 90.0}, IEEE_2: {}}
+    assert Palette.from_dict(stored).lamps == [IEEE_1, IEEE_2]
 
 
 async def test_fetch_palettes() -> None:

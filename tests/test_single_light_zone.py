@@ -7,7 +7,7 @@ import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 
 from custom_components.zha_dynamic_scenes.const import CONF_ZONES, DOMAIN
-from custom_components.zha_dynamic_scenes.models import LightAction, ZoneConfig
+from custom_components.zha_dynamic_scenes.models import ZoneConfig
 from custom_components.zha_dynamic_scenes.protocol import (
     CMD_ENHANCED_ADD_SCENE,
     SceneContent,
@@ -88,11 +88,11 @@ async def test_automatic_palettes_match_the_lamp(
     hass: HomeAssistant, loaded: MockConfigEntry
 ) -> None:
     manager = loaded.runtime_data
-    room = {lamp(n).ieee: LightAction() for n in (1, 2)}
+    room = [lamp(n).ieee for n in (1, 2)]
     manager.async_update_palettes(
         [
-            palette("hue:room", group_name="Room", actions=room),
-            palette("hue:strip", group_name="Strip", actions={IEEE: LightAction()}),
+            palette("hue:room", group_name="Room", lamps=room),
+            palette("hue:strip", group_name="Strip", lamps=[IEEE]),
         ]
     )
     group_zone, light_zone = manager.zones.values()
