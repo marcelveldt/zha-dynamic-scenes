@@ -11,6 +11,7 @@ from homeassistant.components.zha.helpers import (
 )
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from zha.application.const import (
     ATTR_IEEE,
@@ -20,7 +21,7 @@ from zha.application.const import (
     ZHA_GW_MSG_DEVICE_JOINED,
     ZHA_GW_MSG_DEVICE_REMOVED,
 )
-from zha.application.platforms.light import BaseLight
+from zha.application.platforms.light import BaseLight, Light
 from zha.application.platforms.light.const import ColorMode
 from zigpy.exceptions import ZigbeeException
 from zigpy.profiles import zha as zha_profile
@@ -29,18 +30,20 @@ from zigpy.zcl.foundation import ReadAttributesResponse, Status
 
 from .const import DOMAIN
 from .engine import TransportError
-from .models import Lamp, LampKind
+from .models import Lamp, LampKind, ZoneConfig
 from .protocol import (
     ATTR_HUE_FEATURES,
     CLUSTER_HUE_EFFECTS,
     CLUSTER_SCENES,
+    CMD_DYNAMIC_PALETTE,
     MANUFACTURER_SIGNIFY,
     dynamic_palette_frame,
     zcl_frame,
 )
 
 if TYPE_CHECKING:
-    from zha.zigbee.group import Group, GroupMember
+    from zha.zigbee.device import Device
+    from zha.zigbee.group import Group
 
 # manufacturer names of Signify lamps, as ZHA matches them for its Hue light
 SIGNIFY_MANUFACTURERS = frozenset({"Philips", "Signify Netherlands B.V."})
@@ -117,6 +120,26 @@ class ZhaSceneTransport:
         except (ZigbeeException, TimeoutError) as err:
             raise TransportError(str(err) or type(err).__name__) from err
 
+    async def async_start_dynamic_lamp(self, lamp: Lamp, payload: bytes) -> None:
+        """
+        Unicast the dynamic palette command to one lamp.
+
+        :raises TransportError: The frame could not be sent.
+        """
+        device = _gateway_proxy(self._hass).gateway.devices[EUI64.convert(lamp.ieee)]
+        tsn = device.device.get_sequence()
+        endpoint = device.device.endpoints[lamp.endpoint_id]
+        try:
+            await endpoint.request(
+                CLUSTER_SCENES,
+                tsn,
+                dynamic_palette_frame(tsn, payload),
+                command_id=CMD_DYNAMIC_PALETTE,
+                expect_reply=False,
+            )
+        except (ZigbeeException, TimeoutError) as err:
+            raise TransportError(str(err) or type(err).__name__) from err
+
 
 @callback
 def async_zha_ready(hass: HomeAssistant) -> bool:
@@ -143,25 +166,44 @@ def async_group_lights(hass: HomeAssistant) -> dict[str, int]:
 
 
 @callback
-def async_group_member_ieees(hass: HomeAssistant, group_id: int) -> set[str]:
-    """
-    Return the IEEE addresses of the devices in a ZHA group.
-
-    :raises HomeAssistantError: ZHA is not loaded or the group does not exist.
-    """
-    return {str(member.device.ieee) for member in _group(_gateway_proxy(hass), group_id).members}
+def async_device_lights(hass: HomeAssistant) -> dict[str, str]:
+    """Return the light entity ids of ZHA devices with the IEEE address of their device."""
+    return {
+        ref.ha_entity_id: str(ref.entity_data.device_proxy.device.ieee)
+        for refs in _gateway_proxy(hass).ha_entity_refs.values()
+        for ref in refs
+        if isinstance(ref.entity_data.entity, Light)
+    }
 
 
 @callback
-def async_zone_lamps(hass: HomeAssistant, group_id: int) -> list[Lamp]:
+def async_zone_ieees(hass: HomeAssistant, zone: ZoneConfig) -> set[str]:
     """
-    Return the available lights in a ZHA group.
+    Return the IEEE addresses of the devices in a zone, available or not.
 
-    :raises HomeAssistantError: ZHA is not loaded or the group does not exist.
+    :raises HomeAssistantError: ZHA is not loaded or the zone's group does not exist.
+    """
+    if zone.ieee is not None:
+        return {zone.ieee}
+    assert zone.group_id is not None
+    return {
+        str(member.device.ieee) for member in _group(_gateway_proxy(hass), zone.group_id).members
+    }
+
+
+@callback
+def async_zone_lamps(hass: HomeAssistant, zone: ZoneConfig) -> list[Lamp]:
+    """
+    Return the available lights of a zone.
+
+    :raises HomeAssistantError: ZHA is not loaded, or the zone's group or light does not
+        exist.
     """
     proxy = _gateway_proxy(hass)
+    if zone.group_id is None:
+        return _single_lamp(hass, proxy, zone.entity_id)
     lamps = []
-    for member in _group(proxy, group_id).members:
+    for member in _group(proxy, zone.group_id).members:
         if not member.device.available:
             continue
         light = next((e for e in member.associated_entities if isinstance(e, BaseLight)), None)
@@ -178,7 +220,7 @@ def async_zone_lamps(hass: HomeAssistant, group_id: int) -> list[Lamp]:
                 ieee=str(member.device.ieee),
                 endpoint_id=member.endpoint_id,
                 entity_id=entity_id,
-                kind=_lamp_kind(member, light),
+                kind=_lamp_kind(member.device, member.endpoint_id, light),
             )
         )
     return lamps
@@ -232,12 +274,34 @@ def _group(proxy: ZHAGatewayProxy, group_id: int) -> Group:
     return group
 
 
-def _lamp_kind(member: GroupMember, light: BaseLight) -> LampKind:
-    """Return what a group member can do, from its colour modes and Hue clusters."""
+def _single_lamp(hass: HomeAssistant, proxy: ZHAGatewayProxy, entity_id: str) -> list[Lamp]:
+    """Return the lamp of a ZHA light as a list, empty when it is unavailable."""
+    resolved = er.async_resolve_entity_id(er.async_get(hass), entity_id)
+    ref = proxy.get_entity_reference(resolved) if resolved else None
+    if ref is None or not isinstance(light := ref.entity_data.entity, Light):
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="light_not_found",
+            translation_placeholders={"light": resolved or entity_id},
+        )
+    if not light.device.available:
+        return []
+    return [
+        Lamp(
+            ieee=str(light.device.ieee),
+            endpoint_id=light.endpoint.id,
+            entity_id=ref.ha_entity_id,
+            kind=_lamp_kind(light.device, light.endpoint.id, light),
+        )
+    ]
+
+
+def _lamp_kind(device: Device, endpoint_id: int, light: BaseLight) -> LampKind:
+    """Return what a light can do, from its colour modes and Hue clusters."""
     if ColorMode.XY in light.supported_color_modes:
-        endpoint = member.device.device.endpoints[member.endpoint_id]
+        endpoint = device.device.endpoints[endpoint_id]
         if (
-            member.device.manufacturer in SIGNIFY_MANUFACTURERS
+            device.manufacturer in SIGNIFY_MANUFACTURERS
             and CLUSTER_HUE_EFFECTS in endpoint.in_clusters
         ):
             return LampKind.DYNAMIC

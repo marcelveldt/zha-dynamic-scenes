@@ -11,7 +11,7 @@ import itertools
 import logging
 from typing import Any, Protocol
 
-from .models import Gradient, Lamp, LightAction, Palette, PaletteColor
+from .models import Gradient, Lamp, LightAction, Palette, PaletteColor, ZoneConfig
 from .protocol import (
     CMD_ADD_HUE_SCENE,
     CMD_ENHANCED_ADD_SCENE,
@@ -69,6 +69,13 @@ class SceneTransport(Protocol):
     async def async_start_dynamic(self, group_id: int, payload: bytes) -> None:
         """
         Groupcast the dynamic palette command to a Zigbee group.
+
+        :raises TransportError: The frame could not be sent.
+        """
+
+    async def async_start_dynamic_lamp(self, lamp: Lamp, payload: bytes) -> None:
+        """
+        Unicast the dynamic palette command to one lamp.
 
         :raises TransportError: The frame could not be sent.
         """
@@ -149,7 +156,7 @@ class SceneCache:
         :param data: State from `as_dict`, or an empty dict.
         :param save: Called after every change to persist `as_dict`.
         """
-        # zone group id -> palette id -> {"scene_id": int, "used": int}
+        # zone id -> palette id -> {"scene_id": int, "used": int}
         self._slots: dict[str, dict[str, dict[str, int]]] = data.get("slots", {})
         # ieee -> scene id -> [level, x, y] or {"level": int, "points": [[x, y]], "style": int}
         self._scenes: dict[str, dict[str, list[int] | dict[str, Any]]] = data.get("scenes", {})
@@ -161,13 +168,13 @@ class SceneCache:
         """Return the state to persist."""
         return {"slots": self._slots, "scenes": self._scenes, "gradient": self._gradient}
 
-    def slot(self, group_id: int, palette_id: str) -> int | None:
+    def slot(self, zone_id: str, palette_id: str) -> int | None:
         """Return the scene id of a palette in a zone, if it has one."""
-        if slot := self._slots.get(str(group_id), {}).get(palette_id):
+        if slot := self._slots.get(zone_id, {}).get(palette_id):
             return slot["scene_id"]
         return None
 
-    def allocate(self, group_id: int, palette_id: str) -> int:
+    def allocate(self, zone_id: str, palette_id: str) -> int:
         """
         Give a palette a scene id in a zone.
 
@@ -183,26 +190,26 @@ class SceneCache:
                 ((zone, palette) for zone, slots in self._slots.items() for palette in slots),
                 key=lambda key: self._slots[key[0]][key[1]]["used"],
             )
-            scene_id = self.release(int(zone), palette)
-        self._slots.setdefault(str(group_id), {})[palette_id] = {"scene_id": scene_id, "used": 0}
+            scene_id = self.release(zone, palette)
+        self._slots.setdefault(zone_id, {})[palette_id] = {"scene_id": scene_id, "used": 0}
         self._save()
         return scene_id
 
-    def least_recently_used(self, group_id: int, exclude: str) -> str | None:
+    def least_recently_used(self, zone_id: str, exclude: str) -> str | None:
         """Return the palette id of the zone's least recently used slot other than `exclude`."""
-        slots = self._slots.get(str(group_id), {})
+        slots = self._slots.get(zone_id, {})
         candidates = [palette_id for palette_id in slots if palette_id != exclude]
         return min(candidates, key=lambda p: slots[p]["used"], default=None)
 
-    def touch(self, group_id: int, palette_id: str) -> None:
+    def touch(self, zone_id: str, palette_id: str) -> None:
         """Mark a palette's slot as the most recently used one."""
         latest = max(slot["used"] for slots in self._slots.values() for slot in slots.values())
-        self._slots[str(group_id)][palette_id]["used"] = latest + 1
+        self._slots[zone_id][palette_id]["used"] = latest + 1
         self._save()
 
-    def release(self, group_id: int, palette_id: str) -> int:
+    def release(self, zone_id: str, palette_id: str) -> int:
         """Drop a palette's slot and everything known about it; return its scene id."""
-        scene_id = self._slots[str(group_id)].pop(palette_id)["scene_id"]
+        scene_id = self._slots[zone_id].pop(palette_id)["scene_id"]
         for scenes in self._scenes.values():
             scenes.pop(str(scene_id), None)
         self._save()
@@ -239,9 +246,9 @@ class SceneCache:
         if scenes is not None or gradient is not None:
             self._save()
 
-    def forget_zone(self, group_id: int) -> None:
+    def forget_zone(self, zone_id: str) -> None:
         """Forget what the lamps store for a zone's palettes, so they are written again."""
-        keys = {str(slot["scene_id"]) for slot in self._slots.get(str(group_id), {}).values()}
+        keys = {str(slot["scene_id"]) for slot in self._slots.get(zone_id, {}).values()}
         for scenes in self._scenes.values():
             for key in keys & scenes.keys():
                 del scenes[key]
@@ -255,7 +262,7 @@ class SceneEngine:
         """Initialize the engine."""
         self._transport = transport
         self._cache = cache
-        self._locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def async_gradient_lamps(self, lamps: Sequence[Lamp]) -> set[str]:
         """
@@ -270,7 +277,7 @@ class SceneEngine:
 
     async def async_start(
         self,
-        group_id: int,
+        zone: ZoneConfig,
         palette: Palette,
         contents: Sequence[tuple[Lamp, StoredContent]],
         *,
@@ -282,9 +289,10 @@ class SceneEngine:
         Start a palette on a zone.
 
         Writes the palette's scene to the lamps whose stored content is unknown or
-        different, then sends one groupcast so all lamps start together.
+        different, then starts the palette with one groupcast to the zone's group, so all
+        lamps start together, or with a unicast to the lamp of a single-light zone.
 
-        :param group_id: Zigbee group of the zone.
+        :param zone: The zone to start the palette on.
         :param palette: The palette to start.
         :param contents: The dynamic lamps of the zone with the scene content they start from;
             gradient content for gradient lamps.
@@ -292,36 +300,39 @@ class SceneEngine:
         :param brightness: Level 1..254 for all lamps instead of their own.
         :param transition: Transition time in 1/10 s.
         :return: Lamps that could not store the scene and will not animate.
-        :raises TransportError: The groupcast could not be sent.
+        :raises TransportError: The start could not be sent.
         """
-        async with self._locks[group_id]:
+        zone_id = zone.zone_id
+        async with self._locks[zone_id]:
             lamps = [lamp for lamp, _ in contents]
-            scene_id = self._cache.slot(group_id, palette.palette_id)
+            scene_id = self._cache.slot(zone_id, palette.palette_id)
             if scene_id is None:
-                scene_id = self._cache.allocate(group_id, palette.palette_id)
+                scene_id = self._cache.allocate(zone_id, palette.palette_id)
             pending = [
                 (lamp, content)
                 for lamp, content in contents
                 if self._cache.stored(lamp.ieee, scene_id) != content
             ]
-            failed = await self._async_write(group_id, palette.palette_id, scene_id, pending, lamps)
-            self._cache.touch(group_id, palette.palette_id)
-            await self._transport.async_start_dynamic(
-                group_id,
-                dynamic_palette_payload(
-                    SCENE_GROUP,
-                    scene_id,
-                    [color.xy for color in palette.colors],
-                    speed=speed,
-                    brightness=brightness,
-                    transition=transition,
-                ),
+            failed = await self._async_write(zone_id, palette.palette_id, scene_id, pending, lamps)
+            self._cache.touch(zone_id, palette.palette_id)
+            payload = dynamic_palette_payload(
+                SCENE_GROUP,
+                scene_id,
+                [color.xy for color in palette.colors],
+                speed=speed,
+                brightness=brightness,
+                transition=transition,
             )
+            if zone.group_id is None:
+                for lamp in lamps:
+                    await self._transport.async_start_dynamic_lamp(lamp, payload)
+            else:
+                await self._transport.async_start_dynamic(zone.group_id, payload)
             return failed
 
     async def _async_write(
         self,
-        group_id: int,
+        zone_id: str,
         palette_id: str,
         scene_id: int,
         pending: Sequence[tuple[Lamp, StoredContent]],
@@ -334,8 +345,8 @@ class SceneEngine:
             )
         )
         full = [i for i, status in enumerate(statuses) if status == STATUS_INSUFFICIENT_SPACE]
-        if full and (victim := self._cache.least_recently_used(group_id, exclude=palette_id)):
-            await self._async_evict(group_id, victim, lamps)
+        if full and (victim := self._cache.least_recently_used(zone_id, exclude=palette_id)):
+            await self._async_evict(zone_id, victim, lamps)
             retried = await asyncio.gather(
                 *(self._async_add(pending[i][0], scene_id, pending[i][1]) for i in full)
             )
@@ -346,10 +357,10 @@ class SceneEngine:
         for (lamp, _), status in zip(pending, statuses, strict=True):
             if status != STATUS_SUCCESS:
                 _LOGGER.warning(
-                    "%s could not store scene 0x%02x of zone 0x%04x (%s)",
+                    "%s could not store scene 0x%02x of zone %s (%s)",
                     lamp.entity_id,
                     scene_id,
-                    group_id,
+                    zone_id,
                     "no response" if status is None else f"status 0x{status:02x}",
                 )
                 failed.append(lamp)
@@ -376,10 +387,10 @@ class SceneEngine:
         self._cache.set_stored(lamp.ieee, scene_id, content if status == STATUS_SUCCESS else None)
         return status
 
-    async def _async_evict(self, group_id: int, palette_id: str, lamps: Sequence[Lamp]) -> None:
+    async def _async_evict(self, zone_id: str, palette_id: str, lamps: Sequence[Lamp]) -> None:
         """Remove a palette's scene from the zone's lamps and free its slot."""
-        scene_id = self._cache.release(group_id, palette_id)
-        _LOGGER.debug("Evicting scene 0x%02x of zone 0x%04x", scene_id, group_id)
+        scene_id = self._cache.release(zone_id, palette_id)
+        _LOGGER.debug("Evicting scene 0x%02x of zone %s", scene_id, zone_id)
         await asyncio.gather(*(self._async_remove(lamp, scene_id) for lamp in lamps))
 
     async def _async_remove(self, lamp: Lamp, scene_id: int) -> None:

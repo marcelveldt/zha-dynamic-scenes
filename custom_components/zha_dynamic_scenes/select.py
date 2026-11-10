@@ -26,7 +26,7 @@ async def async_setup_entry(
     """Set up a select entity per zone and remove those of deleted zones."""
     manager = entry.runtime_data
     registry = er.async_get(hass)
-    zones = {_unique_id(group_id) for group_id in manager.zones}
+    zones = {zone.unique_id for zone in manager.zones.values()}
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity.domain == SELECT_DOMAIN and entity.unique_id not in zones:
             registry.async_remove(entity.entity_id)
@@ -47,12 +47,12 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
     def __init__(
         self, hass: HomeAssistant, manager: DynamicScenesManager, zone: ZoneConfig
     ) -> None:
-        """Initialize the entity on the device of the zone's ZHA group."""
+        """Initialize the entity on the device of the zone's ZHA group or light."""
         self._manager = manager
         self._zone = zone
         self._palette_ids: dict[str, str] = {}
         self._attr_options = []
-        self._attr_unique_id = _unique_id(zone.group_id)
+        self._attr_unique_id = zone.unique_id
         self.device_entry = async_entity_id_to_device(hass, zone.entity_id)
 
     async def async_added_to_hass(self) -> None:
@@ -69,7 +69,7 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                SIGNAL_ZONE_ACTIVATED.format(self._zone.group_id),
+                SIGNAL_ZONE_ACTIVATED.format(self._zone.zone_id),
                 self._handle_activated,
             )
         )
@@ -77,12 +77,12 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
     async def async_select_option(self, option: str) -> None:
         """Start the selected palette with its own speed and brightness."""
         await self._manager.async_activate(
-            self._zone.group_id, self._palette_ids[option], context=self._context
+            self._zone.zone_id, self._palette_ids[option], context=self._context
         )
 
     async def async_rewrite_scenes(self) -> None:
         """Write the zone's scenes to the lamps again on their next use."""
-        self._manager.async_rewrite_zone(self._zone.group_id)
+        self._manager.async_rewrite_zone(self._zone.zone_id)
 
     @callback
     def _handle_activated(self, palette_id: str, context: Context | None) -> None:
@@ -107,8 +107,3 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
         palettes = self._manager.zone_palettes(self._zone)
         self._palette_ids = {palette.label: palette.palette_id for palette in palettes}
         self._attr_options = list(self._palette_ids)
-
-
-def _unique_id(group_id: int) -> str:
-    """Return the unique id of a zone's select entity."""
-    return f"{group_id:04x}"

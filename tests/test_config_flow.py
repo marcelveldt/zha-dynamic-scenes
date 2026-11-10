@@ -1,10 +1,12 @@
 """Config and options flow."""
 
+from typing import Any
 from unittest.mock import patch
 
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, get_schema_suggested_value
@@ -19,7 +21,7 @@ from custom_components.zha_dynamic_scenes.hue_import import HueAuthError
 from custom_components.zha_dynamic_scenes.models import PaletteSource
 
 from .common import lamp, palette
-from .conftest import GROUP, INTEGRATION
+from .conftest import GROUP, INTEGRATION, ZONE_ID
 
 
 @pytest.mark.usefixtures("zha")
@@ -146,7 +148,7 @@ async def test_add_zone_with_cluster(
     )
     result = await _menu(hass, empty_entry, "add_zone")
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"group": "light.zone_group"}
+        result["flow_id"], {"light": "light.zone_group"}
     )
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "zone"
@@ -185,12 +187,12 @@ async def test_add_zone_with_cluster(
     await hass.async_block_till_done()
     assert hass.states.get("select.dynamic_scene") is not None
     # storage keys are built from the group id, so it must not stay zigpy's hex printing type
-    assert type(empty_entry.runtime_data.zones[GROUP].group_id) is int
+    assert type(empty_entry.runtime_data.zones[ZONE_ID].group_id) is int
 
     # the only ZHA group is taken now
     result = await _menu(hass, empty_entry, "add_zone")
     assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "no_groups"
+    assert result["reason"] == "no_lights"
 
     result = await _menu(hass, empty_entry, "edit_zone")
     result = await hass.config_entries.options.async_configure(
@@ -207,6 +209,80 @@ async def test_add_zone_with_cluster(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ZONES] == []
+
+
+async def test_add_single_light_zone(
+    hass: HomeAssistant, empty_entry: MockConfigEntry, entity_registry: er.EntityRegistry
+) -> None:
+    light = entity_registry.async_get_or_create(
+        "light", "zha", f"{lamp(1).ieee}-11", suggested_object_id="lamp_01"
+    )
+    hass.states.async_set("light.lamp_01", "on", {"friendly_name": "Lamp 01"})
+    device_lights = {"light.lamp_01": lamp(1).ieee}
+    with patch(f"{INTEGRATION}.config_flow.async_device_lights", return_value=device_lights):
+        result = await _menu(hass, empty_entry, "add_zone")
+        assert _field(result, "light").config["include_entities"] == [
+            "light.zone_group",
+            "light.lamp_01",
+        ]
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"light": "light.lamp_01"}
+        )
+        assert result["step_id"] == "zone"
+        assert result["description_placeholders"]["zone"] == "Lamp 01"
+        # a single light has nothing to cluster
+        assert result["menu_options"] == ["zone_palettes", "delete_zone", "save"]
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "save"}
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_ZONES] == [
+            {
+                "group_id": None,
+                "entity_id": light.id,
+                "clusters": [],
+                "palettes": None,
+                "ieee": lamp(1).ieee,
+            }
+        ]
+        await hass.async_block_till_done()
+        assert hass.states.get("select.dynamic_scene") is not None
+
+        # the light is a zone now, the group is still free
+        result = await _menu(hass, empty_entry, "add_zone")
+        assert _field(result, "light").config["include_entities"] == ["light.zone_group"]
+
+    result = await _menu(hass, empty_entry, "edit_zone")
+    assert _field(result, "zone").config["options"] == [{"value": lamp(1).ieee, "label": "Lamp 01"}]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"zone": lamp(1).ieee}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "delete_zone"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES] == []
+
+
+async def test_delete_zone_whose_light_is_gone(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    removed = HomeAssistantError("the zone's light was removed from ZHA")
+    with patch(f"{INTEGRATION}.config_flow.async_zone_lamps", side_effect=removed):
+        result = await _menu(hass, loaded, "edit_zone")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"zone": ZONE_ID}
+        )
+        assert result["step_id"] == "zone"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "delete_zone"}
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES] == []
+
+
+def _field(result: dict, key: str) -> Any:
+    return next(value for marker, value in result["data_schema"].schema.items() if marker == key)
 
 
 async def _menu(hass: HomeAssistant, entry: MockConfigEntry, step: str) -> dict:

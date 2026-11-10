@@ -165,31 +165,48 @@ class Palette:
 @dataclass(slots=True)
 class ZoneConfig:
     """
-    A zone: a ZHA group whose lamps play palettes together.
+    A zone: a ZHA group whose lamps play palettes together, or a single ZHA light.
 
-    :param group_id: Zigbee group id of the ZHA group.
-    :param entity_id: Entity registry id of the ZHA group light.
+    :param group_id: Zigbee group id of the ZHA group, None for a single light.
+    :param entity_id: Entity registry id of the ZHA group light or of the single light.
     :param clusters: Lists of lamp IEEEs that share a start colour.
     :param palettes: Ids of the palettes offered in the zone, None for the automatic choice.
+    :param ieee: IEEE address of the single light, None for a group.
     """
 
-    group_id: int
+    group_id: int | None
     entity_id: str
     clusters: list[list[str]] = field(default_factory=list)
     palettes: list[str] | None = None
+    ieee: str | None = None
+
+    @property
+    def zone_id(self) -> str:
+        """Return the id of the zone: its group id, or the IEEE of its single light."""
+        return str(self.group_id) if self.ieee is None else self.ieee
+
+    @property
+    def unique_id(self) -> str:
+        """Return the base of the unique ids of the zone's entities."""
+        return f"{self.group_id:04x}" if self.ieee is None else self.ieee
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON serializable dict."""
-        return asdict(self)
+        """Return a JSON serializable dict; only a single-light zone has an IEEE."""
+        data = asdict(self)
+        if self.ieee is None:
+            del data["ieee"]
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ZoneConfig:
         """Create from the stored dict."""
+        group_id = data.get("group_id")
         return cls(
-            group_id=int(data["group_id"]),
+            group_id=None if group_id is None else int(group_id),
             entity_id=data["entity_id"],
             clusters=[list(cluster) for cluster in data.get("clusters", [])],
             palettes=data.get("palettes"),
+            ieee=data.get("ieee"),
         )
 
 
@@ -199,7 +216,7 @@ class Lamp:
     A light in a zone.
 
     :param ieee: IEEE address as ZHA prints it.
-    :param endpoint_id: Endpoint that is a member of the zone's group.
+    :param endpoint_id: Endpoint of the light, the member of the zone's group.
     :param entity_id: Home Assistant light entity.
     :param kind: What the lamp can do with a palette.
     """

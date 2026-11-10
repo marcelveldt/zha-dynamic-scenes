@@ -20,6 +20,7 @@ from custom_components.zha_dynamic_scenes.models import (
     LampKind,
     LightAction,
     PaletteColor,
+    ZoneConfig,
 )
 from custom_components.zha_dynamic_scenes.protocol import (
     CMD_ADD_HUE_SCENE,
@@ -47,6 +48,9 @@ from .common import (
 )
 
 GROUP = 0xDD92
+ZONE = ZoneConfig(group_id=GROUP, entity_id="light.zone_group")
+OTHER_ZONE = ZoneConfig(group_id=0x0001, entity_id="light.other_group")
+LIGHT_ZONE = ZoneConfig(group_id=None, entity_id="light.lamp_01", ieee=lamp(1).ieee)
 CONTENT_A = SceneContent(level=200, x=20000, y=20000)
 CONTENT_B = SceneContent(level=100, x=30000, y=10000)
 GRADIENT_A = GradientSceneContent(level=200, points=((0.6, 0.3), (0.2, 0.7)), style=0x00)
@@ -146,7 +150,7 @@ def test_assign_palette_gradient_takes_the_first_five_colours() -> None:
 async def test_first_start_writes_scene_then_groupcasts() -> None:
     transport, cache, engine = _engine()
     failed = await engine.async_start(
-        GROUP,
+        ZONE,
         palette(),
         [(lamp(1), CONTENT_A), (lamp(2), CONTENT_B)],
         speed=0.5,
@@ -170,19 +174,35 @@ async def test_first_start_writes_scene_then_groupcasts() -> None:
     assert cache.stored(lamp(1).ieee, 0x80) == CONTENT_A
 
 
+async def test_single_light_zone_starts_with_a_unicast() -> None:
+    transport, cache, engine = _engine()
+    contents = [(lamp(1), CONTENT_A)]
+    for _ in range(2):
+        assert await engine.async_start(LIGHT_ZONE, palette(), contents, speed=0.5) == []
+
+    payload = dynamic_palette_payload(0, 0x80, [RED.xy, GREEN.xy, BLUE.xy], speed=0.5)
+    assert transport.unicasts == [(lamp(1).ieee, payload), (lamp(1).ieee, payload)]
+    assert transport.groupcasts == []
+    # written once, under the lamp's own zone
+    assert transport.requests == [
+        (lamp(1).ieee, CMD_ENHANCED_ADD_SCENE, add_scene_payload(0, 0x80, CONTENT_A, 4))
+    ]
+    assert cache.as_dict()["slots"] == {lamp(1).ieee: {"custom:a": {"scene_id": 0x80, "used": 2}}}
+
+
 async def test_known_content_is_not_written_again() -> None:
     transport, cache, engine = _engine()
-    await engine.async_start(GROUP, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
+    await engine.async_start(ZONE, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
     transport.requests.clear()
 
     await engine.async_start(
-        GROUP, palette(), [(lamp(1), CONTENT_A), (lamp(2), CONTENT_A)], speed=0.5
+        ZONE, palette(), [(lamp(1), CONTENT_A), (lamp(2), CONTENT_A)], speed=0.5
     )
     assert [r[0] for r in transport.requests] == [lamp(2).ieee]
 
     transport.requests.clear()
     await engine.async_start(
-        GROUP, palette(), [(lamp(1), CONTENT_B), (lamp(2), CONTENT_A)], speed=0.5
+        ZONE, palette(), [(lamp(1), CONTENT_B), (lamp(2), CONTENT_A)], speed=0.5
     )
     assert [r[0] for r in transport.requests] == [lamp(1).ieee]
     assert cache.stored(lamp(1).ieee, 0x80) == CONTENT_B
@@ -192,7 +212,7 @@ async def test_known_content_is_not_written_again() -> None:
 async def test_gradient_content_is_stored_with_the_signify_command() -> None:
     transport, cache, engine = _engine()
     failed = await engine.async_start(
-        GROUP, palette(), [(lamp(1), GRADIENT_A), (lamp(2), CONTENT_A)], speed=0.5
+        ZONE, palette(), [(lamp(1), GRADIENT_A), (lamp(2), CONTENT_A)], speed=0.5
     )
     assert failed == []
     assert transport.signify_requests == [
@@ -215,13 +235,13 @@ async def test_gradient_content_is_stored_with_the_signify_command() -> None:
 )
 async def test_changed_gradient_is_written_again(changed: GradientSceneContent) -> None:
     transport, cache, engine = _engine()
-    await engine.async_start(GROUP, palette(), [(lamp(1), GRADIENT_A)], speed=0.5)
+    await engine.async_start(ZONE, palette(), [(lamp(1), GRADIENT_A)], speed=0.5)
     # the cache survives a restart: the same gradient is not written again
     engine = SceneEngine(transport, SceneCache(cache.as_dict(), Mock()))
-    await engine.async_start(GROUP, palette(), [(lamp(1), GRADIENT_A)], speed=0.5)
+    await engine.async_start(ZONE, palette(), [(lamp(1), GRADIENT_A)], speed=0.5)
     assert len(transport.signify_requests) == 1
 
-    await engine.async_start(GROUP, palette(), [(lamp(1), changed)], speed=0.5)
+    await engine.async_start(ZONE, palette(), [(lamp(1), changed)], speed=0.5)
     assert len(transport.signify_requests) == 2
     assert transport.signify_requests[1][2] == gradient_scene_payload(0, 0x80, changed, 4)
 
@@ -239,7 +259,7 @@ async def test_gradient_support_is_read_once_until_the_lamp_is_forgotten() -> No
     assert transport.feature_reads == []
 
     # rewriting a zone's scenes does not forget what the lamps are
-    cache.forget_zone(GROUP)
+    cache.forget_zone(ZONE.zone_id)
     cache.forget_lamp(lamp(1).ieee)
     transport.features[lamp(1).ieee] = FEATURES_COLOR
     assert await engine.async_gradient_lamps(lamps) == set()
@@ -259,21 +279,21 @@ async def test_unreadable_lamp_has_no_gradient_and_is_read_again() -> None:
 
 async def test_each_palette_and_zone_gets_its_own_scene_id() -> None:
     transport, cache, engine = _engine()
-    await engine.async_start(GROUP, palette("custom:a"), [(lamp(1), CONTENT_A)], speed=0.5)
-    await engine.async_start(GROUP, palette("custom:b"), [(lamp(1), CONTENT_A)], speed=0.5)
-    await engine.async_start(0x0001, palette("custom:b"), [(lamp(1), CONTENT_A)], speed=0.5)
-    assert cache.slot(GROUP, "custom:a") == 0x80
-    assert cache.slot(GROUP, "custom:b") == 0x81
+    await engine.async_start(ZONE, palette("custom:a"), [(lamp(1), CONTENT_A)], speed=0.5)
+    await engine.async_start(ZONE, palette("custom:b"), [(lamp(1), CONTENT_A)], speed=0.5)
+    await engine.async_start(OTHER_ZONE, palette("custom:b"), [(lamp(1), CONTENT_A)], speed=0.5)
+    assert cache.slot(ZONE.zone_id, "custom:a") == 0x80
+    assert cache.slot(ZONE.zone_id, "custom:b") == 0x81
     # all scenes live in group 0x0000, so a lamp in two zones needs distinct ids
-    assert cache.slot(0x0001, "custom:b") == 0x82
+    assert cache.slot(OTHER_ZONE.zone_id, "custom:b") == 0x82
     assert len(transport.requests) == 3
 
 
 async def test_forget_zone_keeps_other_zones() -> None:
     _, cache, engine = _engine()
-    await engine.async_start(GROUP, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
-    await engine.async_start(0x0001, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
-    cache.forget_zone(GROUP)
+    await engine.async_start(ZONE, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
+    await engine.async_start(OTHER_ZONE, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
+    cache.forget_zone(ZONE.zone_id)
     assert cache.stored(lamp(1).ieee, 0x80) is None
     assert cache.stored(lamp(1).ieee, 0x81) == CONTENT_A
 
@@ -281,29 +301,29 @@ async def test_forget_zone_keeps_other_zones() -> None:
 async def test_forgotten_lamp_and_zone_are_written_again() -> None:
     transport, cache, engine = _engine()
     contents = [(lamp(1), CONTENT_A), (lamp(2), CONTENT_A)]
-    await engine.async_start(GROUP, palette(), contents, speed=0.5)
+    await engine.async_start(ZONE, palette(), contents, speed=0.5)
 
     transport.requests.clear()
     cache.forget_lamp(lamp(2).ieee)
-    await engine.async_start(GROUP, palette(), contents, speed=0.5)
+    await engine.async_start(ZONE, palette(), contents, speed=0.5)
     assert [r[0] for r in transport.requests] == [lamp(2).ieee]
 
     transport.requests.clear()
-    cache.forget_zone(GROUP)
-    await engine.async_start(GROUP, palette(), contents, speed=0.5)
+    cache.forget_zone(ZONE.zone_id)
+    await engine.async_start(ZONE, palette(), contents, speed=0.5)
     assert len(transport.requests) == 2
 
 
 async def test_insufficient_space_evicts_least_recently_used_slot() -> None:
     transport, cache, engine = _engine()
     contents = [(lamp(1), CONTENT_A), (lamp(2), CONTENT_A)]
-    await engine.async_start(GROUP, palette("custom:a"), contents, speed=0.5)
-    await engine.async_start(GROUP, palette("custom:b"), contents, speed=0.5)
-    await engine.async_start(GROUP, palette("custom:a"), contents, speed=0.5)
+    await engine.async_start(ZONE, palette("custom:a"), contents, speed=0.5)
+    await engine.async_start(ZONE, palette("custom:b"), contents, speed=0.5)
+    await engine.async_start(ZONE, palette("custom:a"), contents, speed=0.5)
     transport.requests.clear()
 
     transport.answers[lamp(1).ieee] = [STATUS_INSUFFICIENT_SPACE]
-    failed = await engine.async_start(GROUP, palette("custom:c"), contents, speed=0.5)
+    failed = await engine.async_start(ZONE, palette("custom:c"), contents, speed=0.5)
 
     assert failed == []
     # b (0x81) is the least recently used: removed from every lamp of the zone
@@ -314,8 +334,8 @@ async def test_insufficient_space_evicts_least_recently_used_slot() -> None:
     )
     adds = [r[0] for r in transport.requests if r[1] == CMD_ENHANCED_ADD_SCENE]
     assert sorted(adds) == sorted([lamp(1).ieee, lamp(1).ieee, lamp(2).ieee])
-    assert cache.slot(GROUP, "custom:b") is None
-    assert cache.slot(GROUP, "custom:c") == 0x82
+    assert cache.slot(ZONE.zone_id, "custom:b") is None
+    assert cache.slot(ZONE.zone_id, "custom:c") == 0x82
     assert cache.stored(lamp(1).ieee, 0x81) is None
     assert cache.stored(lamp(1).ieee, 0x82) == CONTENT_A
 
@@ -324,7 +344,7 @@ async def test_insufficient_space_without_slot_to_evict_fails_the_lamp() -> None
     transport, cache, engine = _engine()
     transport.answers[lamp(1).ieee] = [STATUS_INSUFFICIENT_SPACE]
     failed = await engine.async_start(
-        GROUP, palette(), [(lamp(1), CONTENT_A), (lamp(2), CONTENT_A)], speed=0.5
+        ZONE, palette(), [(lamp(1), CONTENT_A), (lamp(2), CONTENT_A)], speed=0.5
     )
     assert failed == [lamp(1)]
     assert cache.stored(lamp(1).ieee, 0x80) is None
@@ -335,12 +355,12 @@ async def test_insufficient_space_without_slot_to_evict_fails_the_lamp() -> None
 async def test_unreachable_lamp_fails_and_is_retried_next_time() -> None:
     transport, cache, engine = _engine()
     transport.answers[lamp(1).ieee] = [None]
-    failed = await engine.async_start(GROUP, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
+    failed = await engine.async_start(ZONE, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
     assert failed == [lamp(1)]
     assert cache.stored(lamp(1).ieee, 0x80) is None
 
     transport.requests.clear()
-    assert await engine.async_start(GROUP, palette(), [(lamp(1), CONTENT_A)], speed=0.5) == []
+    assert await engine.async_start(ZONE, palette(), [(lamp(1), CONTENT_A)], speed=0.5) == []
     assert len(transport.requests) == 1
 
 
@@ -348,7 +368,7 @@ async def test_groupcast_failure_propagates() -> None:
     transport, _, engine = _engine()
     transport.async_start_dynamic = Mock(side_effect=TransportError("down"))  # type: ignore[method-assign]
     with pytest.raises(TransportError):
-        await engine.async_start(GROUP, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
+        await engine.async_start(ZONE, palette(), [(lamp(1), CONTENT_A)], speed=0.5)
 
 
 def test_allocate_reuses_least_recently_used_id_when_full() -> None:
@@ -361,8 +381,8 @@ def test_allocate_reuses_least_recently_used_id_when_full() -> None:
         "scenes": {lamp(1).ieee: {str(LAST_SCENE_ID): [1, 2, 3]}},
     }
     cache = SceneCache(data, Mock())
-    assert cache.allocate(GROUP, "custom:new") == LAST_SCENE_ID
-    assert cache.slot(GROUP, f"custom:{LAST_SCENE_ID}") is None
+    assert cache.allocate(ZONE.zone_id, "custom:new") == LAST_SCENE_ID
+    assert cache.slot(ZONE.zone_id, f"custom:{LAST_SCENE_ID}") is None
     assert cache.stored(lamp(1).ieee, LAST_SCENE_ID) is None
 
 
@@ -373,20 +393,20 @@ def test_allocate_reuses_least_recently_used_id_of_any_zone() -> None:
     }
     other = {"custom:old": {"scene_id": LAST_SCENE_ID, "used": 0}}
     cache = SceneCache({"slots": {str(GROUP): slots, "1": other}}, Mock())
-    assert cache.allocate(GROUP, "custom:new") == LAST_SCENE_ID
-    assert cache.slot(1, "custom:old") is None
+    assert cache.allocate(ZONE.zone_id, "custom:new") == LAST_SCENE_ID
+    assert cache.slot("1", "custom:old") is None
 
 
 def test_cache_state_round_trips_and_saves() -> None:
     save = Mock()
     cache = SceneCache({}, save)
-    cache.allocate(GROUP, "custom:a")
+    cache.allocate(ZONE.zone_id, "custom:a")
     cache.set_stored(lamp(1).ieee, 0x80, CONTENT_A)
     cache.set_stored(lamp(2).ieee, 0x80, GRADIENT_A)
     cache.set_gradient(lamp(2).ieee, gradient=True)
     assert save.call_count == 4
     restored = SceneCache(json.loads(json.dumps(cache.as_dict())), Mock())
-    assert restored.slot(GROUP, "custom:a") == 0x80
+    assert restored.slot(ZONE.zone_id, "custom:a") == 0x80
     assert restored.stored(lamp(1).ieee, 0x80) == CONTENT_A
     assert restored.stored(lamp(2).ieee, 0x80) == GRADIENT_A
     assert restored.gradient(lamp(2).ieee) is True

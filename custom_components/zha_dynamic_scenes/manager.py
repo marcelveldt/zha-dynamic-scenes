@@ -41,7 +41,7 @@ from .engine import (
 )
 from .models import Lamp, LampKind, Palette, PaletteSource, ZoneConfig
 from .protocol import MAX_LEVEL, GradientSceneContent, SceneContent, level_from_percent
-from .zigbee import ZhaSceneTransport, async_group_member_ieees, async_zone_lamps
+from .zigbee import ZhaSceneTransport, async_zone_ieees, async_zone_lamps
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,14 +69,14 @@ class DynamicScenesManager:
         self.palettes: dict[str, Palette] = {
             item["palette_id"]: Palette.from_dict(item) for item in data.get("palettes", [])
         }
-        self.zones: dict[int, ZoneConfig] = {
-            zone.group_id: zone
+        self.zones: dict[str, ZoneConfig] = {
+            zone.zone_id: zone
             for zone in map(ZoneConfig.from_dict, entry.options.get(CONF_ZONES, []))
         }
         self._store = store
         self._cache = SceneCache(data, self._schedule_save)
         self._engine = SceneEngine(ZhaSceneTransport(hass), self._cache)
-        self._locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @classmethod
     async def async_load(cls, hass: HomeAssistant, entry: ConfigEntry) -> DynamicScenesManager:
@@ -96,7 +96,7 @@ class DynamicScenesManager:
             palettes = [self.palettes[p] for p in zone.palettes if p in self.palettes]
         else:
             try:
-                ieees = async_group_member_ieees(self.hass, zone.group_id)
+                ieees = async_zone_ieees(self.hass, zone)
             except HomeAssistantError as err:
                 _LOGGER.warning("Cannot match palettes to zone: %s", err)
                 ieees = set()
@@ -105,7 +105,7 @@ class DynamicScenesManager:
 
     async def async_activate(
         self,
-        group_id: int,
+        zone_id: str,
         palette_id: str,
         *,
         speed: float | None = None,
@@ -119,17 +119,20 @@ class DynamicScenesManager:
         Dynamic lamps animate the palette; the other lights get a static colour or
         colour temperature from it. Then sends `SIGNAL_ZONE_ACTIVATED` for the zone.
 
+        :param zone_id: `ZoneConfig.zone_id` of the zone.
         :param speed: Animation speed 0..1 instead of the palette's.
         :param brightness: Brightness 1..255 for all lamps instead of the palette's.
         :param transition: Transition time in seconds.
-        :raises HomeAssistantError: The zone's group is unknown or could not be reached.
+        :raises HomeAssistantError: The zone's group or light is unknown or could not be
+            reached.
         """
         # one activation per zone at a time, so the lights and the zone's signal end up with
         # the start that came last
-        async with self._locks[group_id]:
+        async with self._locks[zone_id]:
+            zone = self.zones[zone_id]
             palette = self.palettes[palette_id]
-            lamps = async_zone_lamps(self.hass, group_id)
-            targets = assign_targets(lamps, self.zones[group_id].clusters, palette)
+            lamps = async_zone_lamps(self.hass, zone)
+            targets = assign_targets(lamps, zone.clusters, palette)
             dynamic = [lamp for lamp in lamps if lamp.kind is LampKind.DYNAMIC]
             gradient_lamps: set[str] = set()
             failed: list[Lamp] = []
@@ -141,7 +144,7 @@ class DynamicScenesManager:
                 ]
                 try:
                     failed = await self._engine.async_start(
-                        group_id,
+                        zone,
                         palette,
                         contents,
                         speed=palette.speed if speed is None else speed,
@@ -174,7 +177,7 @@ class DynamicScenesManager:
                         "Could not set %s to its start state: %s", lamp.entity_id, result
                     )
             async_dispatcher_send(
-                self.hass, SIGNAL_ZONE_ACTIVATED.format(group_id), palette_id, context
+                self.hass, SIGNAL_ZONE_ACTIVATED.format(zone_id), palette_id, context
             )
 
     @callback
@@ -200,9 +203,9 @@ class DynamicScenesManager:
         self._library_updated()
 
     @callback
-    def async_rewrite_zone(self, group_id: int) -> None:
+    def async_rewrite_zone(self, zone_id: str) -> None:
         """Write the zone's scenes to the lamps again on the next activation of each palette."""
-        self._cache.forget_zone(group_id)
+        self._cache.forget_zone(zone_id)
 
     @callback
     def forget_lamp(self, ieee: str) -> None:

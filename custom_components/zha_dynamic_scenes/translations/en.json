@@ -79,9 +79,12 @@
       },
       "add_zone": {
         "title": "Add a zone",
-        "description": "A zone is a ZHA group. Its lamps start a palette together.",
+        "description": "A zone is a ZHA group whose lamps start a palette together, or a single ZHA light.",
         "data": {
-          "group": "ZHA group"
+          "light": "Light"
+        },
+        "data_description": {
+          "light": "The light of a ZHA group, or a single light."
         }
       },
       "edit_zone": {
@@ -133,7 +136,7 @@
     },
     "abort": {
       "not_loaded": "The integration is not running.",
-      "no_groups": "There are no ZHA groups with lights left to add."
+      "no_lights": "There are no ZHA groups or lights left to add."
     }
   },
   "entity": {
@@ -149,6 +152,9 @@
     },
     "group_not_found": {
       "message": "ZHA group {group} does not exist."
+    },
+    "light_not_found": {
+      "message": "ZHA light {light} does not exist."
     },
     "send_failed": {
       "message": "Could not start the dynamic scene: {error}"

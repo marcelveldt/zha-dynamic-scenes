@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
     OptionsFlowWithReload,
 )
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -46,7 +47,13 @@ from .const import (
 from .hue_import import HueAuthError, HueImportError, async_fetch_palettes
 from .models import Palette, PaletteColor, PaletteSource, ZoneConfig
 from .protocol import MAX_PALETTE_COLORS
-from .zigbee import async_group_lights, async_group_name, async_zha_ready, async_zone_lamps
+from .zigbee import (
+    async_device_lights,
+    async_group_lights,
+    async_group_name,
+    async_zha_ready,
+    async_zone_lamps,
+)
 
 if TYPE_CHECKING:
     from .manager import DynamicScenesManager
@@ -56,7 +63,7 @@ CONF_BRIGHTNESS = "brightness"
 CONF_CLUSTERS = "clusters"
 CONF_COLORS = "colors"
 CONF_DELETE = "delete"
-CONF_GROUP = "group"
+CONF_LIGHT = "light"
 CONF_LIGHTS = "lights"
 CONF_NAME = "name"
 CONF_PALETTE = "palette"
@@ -121,7 +128,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
     def __init__(self) -> None:
         """Initialize the flow."""
         self._options: dict[str, Any] = {}
-        self._zones: dict[int, ZoneConfig] = {}
+        self._zones: dict[str, ZoneConfig] = {}
         self._zone: ZoneConfig | None = None
         self._palette_id: str | None = None
         self._imported = 0
@@ -132,7 +139,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
             return self.async_abort(reason="not_loaded")
         self._options = dict(self.config_entry.options)
         self._zones = {
-            zone.group_id: zone
+            zone.zone_id: zone
             for zone in map(ZoneConfig.from_dict, self._options.get(CONF_ZONES, []))
         }
         palettes = self._manager.palettes.values()
@@ -240,27 +247,36 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
     async def async_step_add_zone(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Add a zone by picking the light entity of a ZHA group."""
-        lights = {
+        """Add a zone by picking the light entity of a ZHA group or a single ZHA light."""
+        zones = self._zones.values()
+        zoned = {zone.group_id for zone in zones} | {zone.ieee for zone in zones}
+        groups = {
             entity_id: group_id
             for entity_id, group_id in async_group_lights(self.hass).items()
-            if group_id not in self._zones
+            if group_id not in zoned
         }
-        if not lights:
-            return self.async_abort(reason="no_groups")
+        lamps = {
+            entity_id: ieee
+            for entity_id, ieee in async_device_lights(self.hass).items()
+            if ieee not in zoned
+        }
+        if not groups and not lamps:
+            return self.async_abort(reason="no_lights")
         if user_input is not None:
-            entity_id = user_input[CONF_GROUP]
+            entity_id = user_input[CONF_LIGHT]
             entry = er.async_get(self.hass).async_get(entity_id)
-            assert entry is not None  # ZHA group lights have a unique id
-            self._zone = ZoneConfig(group_id=lights[entity_id], entity_id=entry.id)
-            self._zones[self._zone.group_id] = self._zone
+            assert entry is not None  # ZHA lights have a unique id
+            self._zone = ZoneConfig(
+                group_id=groups.get(entity_id), entity_id=entry.id, ieee=lamps.get(entity_id)
+            )
+            self._zones[self._zone.zone_id] = self._zone
             return await self.async_step_zone()
         return self.async_show_form(
             step_id="add_zone",
             data_schema=probatio.Schema(
                 {
-                    probatio.Required(CONF_GROUP): EntitySelector(
-                        EntitySelectorConfig(include_entities=list(lights))
+                    probatio.Required(CONF_LIGHT): EntitySelector(
+                        EntitySelectorConfig(include_entities=[*groups, *lamps])
                     )
                 }
             ),
@@ -271,11 +287,11 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Choose the zone to edit."""
         if user_input is not None:
-            self._zone = self._zones[int(user_input[CONF_ZONE])]
+            self._zone = self._zones[user_input[CONF_ZONE]]
             return await self.async_step_zone()
         options = [
-            SelectOptionDict(value=str(group_id), label=self._zone_name(group_id))
-            for group_id in self._zones
+            SelectOptionDict(value=zone_id, label=self._zone_name(zone))
+            for zone_id, zone in self._zones.items()
         ]
         return self.async_show_form(
             step_id="edit_zone",
@@ -295,7 +311,9 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         clusters = [
             ", ".join(names.get(ieee, ieee) for ieee in cluster) for cluster in zone.clusters
         ]
-        menu = ["zone_palettes", "add_cluster"]
+        menu = ["zone_palettes"]
+        if zone.group_id is not None:  # a single light has nothing to cluster
+            menu.append("add_cluster")
         if zone.clusters:
             menu.append("remove_clusters")
         menu += ["delete_zone", "save"]
@@ -303,7 +321,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
             step_id="zone",
             menu_options=menu,
             description_placeholders={
-                "zone": self._zone_name(zone.group_id),
+                "zone": self._zone_name(zone),
                 "clusters": "\n".join(f"- {cluster}" for cluster in clusters) or "-",
             },
         )
@@ -339,7 +357,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         clustered = {ieee for cluster in zone.clusters for ieee in cluster}
         ieee_by_entity = {
             lamp.entity_id: lamp.ieee
-            for lamp in async_zone_lamps(self.hass, zone.group_id)
+            for lamp in async_zone_lamps(self.hass, zone)
             if lamp.ieee not in clustered
         }
         errors: dict[str, str] = {}
@@ -395,7 +413,7 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Delete the zone and save."""
-        del self._zones[self._current_zone.group_id]
+        del self._zones[self._current_zone.zone_id]
         return self._async_save()
 
     async def async_step_save(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -474,18 +492,26 @@ class DynamicScenesOptionsFlow(OptionsFlowWithReload):
         )
 
     @callback
-    def _zone_name(self, group_id: int) -> str:
-        """Return the ZHA group name of a zone."""
-        return async_group_name(self.hass, group_id) or f"0x{group_id:04x}"
+    def _zone_name(self, zone: ZoneConfig) -> str:
+        """Return the name of a zone's ZHA group or light."""
+        if zone.group_id is not None:
+            return async_group_name(self.hass, zone.group_id) or f"0x{zone.group_id:04x}"
+        entity_id = er.async_resolve_entity_id(er.async_get(self.hass), zone.entity_id)
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return state.name if state else zone.zone_id
 
     @callback
     def _lamp_names(self, zone: ZoneConfig) -> dict[str, str]:
-        """Return the names of a zone's lamps by IEEE."""
+        """Return the names of a zone's lamps by IEEE, empty when its group or light is gone."""
+        try:
+            lamps = async_zone_lamps(self.hass, zone)
+        except HomeAssistantError:
+            return {}
         return {
             lamp.ieee: state.name
             if (state := self.hass.states.get(lamp.entity_id))
             else lamp.entity_id
-            for lamp in async_zone_lamps(self.hass, zone.group_id)
+            for lamp in lamps
         }
 
 

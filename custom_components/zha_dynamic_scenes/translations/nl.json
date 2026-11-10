@@ -79,9 +79,12 @@
       },
       "add_zone": {
         "title": "Zone toevoegen",
-        "description": "Een zone is een ZHA-groep. De lampen ervan starten een palet samen.",
+        "description": "Een zone is een ZHA-groep waarvan de lampen samen een palet starten, of een enkele ZHA-lamp.",
         "data": {
-          "group": "ZHA-groep"
+          "light": "Lamp"
+        },
+        "data_description": {
+          "light": "De lamp van een ZHA-groep, of een enkele lamp."
         }
       },
       "edit_zone": {
@@ -133,7 +136,7 @@
     },
     "abort": {
       "not_loaded": "De integratie draait niet.",
-      "no_groups": "Er zijn geen ZHA-groepen met lampen meer om toe te voegen."
+      "no_lights": "Er zijn geen ZHA-groepen of lampen meer om toe te voegen."
     }
   },
   "entity": {
@@ -149,6 +152,9 @@
     },
     "group_not_found": {
       "message": "ZHA-groep {group} bestaat niet."
+    },
+    "light_not_found": {
+      "message": "ZHA-lamp {light} bestaat niet."
     },
     "send_failed": {
       "message": "De dynamische scène kon niet worden gestart: {error}"
