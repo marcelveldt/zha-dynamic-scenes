@@ -90,10 +90,20 @@ max: 10
 max_exceeded: silent
 
 triggers:
+  # the quirk reports quick repeated taps as one multi-press event instead of short presses
   - trigger: device
     domain: zha
     device_id: !input tap_dial
     type: remote_button_short_press
+    subtype: button_1
+    id: button_1
+    variables:
+      scene: !input button_1_scene
+      brightness: !input button_1_brightness
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
+    type: remote_button_double_press
     subtype: button_1
     id: button_1
     variables:
@@ -111,7 +121,25 @@ triggers:
   - trigger: device
     domain: zha
     device_id: !input tap_dial
+    type: remote_button_double_press
+    subtype: button_2
+    id: button_2
+    variables:
+      scene: !input button_2_scene
+      brightness: !input button_2_brightness
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
     type: remote_button_short_press
+    subtype: button_3
+    id: button_3
+    variables:
+      scene: !input button_3_scene
+      brightness: !input button_3_brightness
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
+    type: remote_button_double_press
     subtype: button_3
     id: button_3
     variables:
@@ -123,6 +151,40 @@ triggers:
     type: remote_button_short_press
     subtype: button_4
     id: button_4
+    variables:
+      steps: 1
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
+    type: remote_button_double_press
+    subtype: button_4
+    id: button_4
+    variables:
+      steps: 2
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
+    type: remote_button_triple_press
+    subtype: button_4
+    id: button_4
+    variables:
+      steps: 3
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
+    type: remote_button_quadruple_press
+    subtype: button_4
+    id: button_4
+    variables:
+      steps: 4
+  - trigger: device
+    domain: zha
+    device_id: !input tap_dial
+    type: remote_button_quintuple_press
+    subtype: button_4
+    id: button_4
+    variables:
+      steps: 5
 
 variables:
   transition: !input transition
@@ -132,11 +194,14 @@ actions:
       - condition: trigger
         id: button_4
     then:
-      - action: select.select_next
-        target:
-          entity_id: !input zone
-        data:
-          cycle: true
+      - repeat:
+          count: "{{ steps }}"
+          sequence:
+            - action: select.select_next
+              target:
+                entity_id: !input zone
+              data:
+                cycle: true
     else:
       - action: zha_dynamic_scenes.activate
         target:

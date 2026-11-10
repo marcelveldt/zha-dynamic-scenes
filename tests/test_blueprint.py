@@ -55,11 +55,14 @@ async def test_automation_config_is_valid(hass: HomeAssistant, tap_dial: str) ->
     config = await async_validate_config_item(hass, "tap_dial", _automation(tap_dial))
 
     assert config is not None
-    assert [trigger["subtype"] for trigger in config["triggers"]] == [
-        "button_1",
-        "button_2",
-        "button_3",
-        "button_4",
+    short, double = "remote_button_short_press", "remote_button_double_press"
+    assert [(trigger["type"], trigger["subtype"]) for trigger in config["triggers"]] == [
+        *((press, f"button_{n}") for n in (1, 2, 3) for press in (short, double)),
+        (short, "button_4"),
+        (double, "button_4"),
+        ("remote_button_triple_press", "button_4"),
+        ("remote_button_quadruple_press", "button_4"),
+        ("remote_button_quintuple_press", "button_4"),
     ]
 
 
@@ -97,6 +100,44 @@ async def test_button_press(
 
     calls = [(c.service, c.data) for c in (*activate, *select_next)]
     assert calls == [call]
+
+
+@pytest.mark.parametrize(
+    ("press", "button", "calls"),
+    [
+        (
+            "remote_button_double_press",
+            "button_1",
+            [("activate", {"entity_id": [SCENES["button_1"]], "brightness": 120})],
+        ),
+        (
+            "remote_button_double_press",
+            "button_4",
+            [("select_next", {"entity_id": [SELECT], "cycle": True})] * 2,
+        ),
+        (
+            "remote_button_quintuple_press",
+            "button_4",
+            [("select_next", {"entity_id": [SELECT], "cycle": True})] * 5,
+        ),
+    ],
+)
+async def test_quick_taps(
+    hass: HomeAssistant,
+    tap_dial: str,
+    press: str,
+    button: str,
+    calls: list[tuple[str, dict[str, Any]]],
+) -> None:
+    """Quick taps arrive as one multi-press event: button 4 steps once per tap, 1-3 start once."""
+    activate = async_mock_service(hass, "zha_dynamic_scenes", "activate")
+    select_next = async_mock_service(hass, "select", "select_next")
+    assert await async_setup_component(hass, "automation", {"automation": _automation(tap_dial)})
+
+    hass.bus.async_fire("zha_event", {"device_ieee": IEEE, **TRIGGERS[(press, button)]})
+    await hass.async_block_till_done()
+
+    assert [(c.service, c.data) for c in (*activate, *select_next)] == calls
 
 
 def _automation(device_id: str, transition: float | None = None) -> dict[str, Any]:
