@@ -42,6 +42,8 @@ the host, and lamps that share a colour stay in sync.
   transition, and the speed of a palette.
 - The first start of a scene stores it in the lamps. Lights of other brands switch to it without
   transition that first time.
+- Lights that only switch on and off (like a relay) store no standard scenes: they are on in the scenes
+  at full brightness and off in the others.
 - Dimming and switching the ZHA group work as usual; the animation keeps running.
 
 ### Blueprint: Hue Tap Dial

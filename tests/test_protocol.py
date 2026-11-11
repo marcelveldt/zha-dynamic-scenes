@@ -17,6 +17,7 @@ from custom_components.zha_scenes.protocol import (
     level_from_percent,
     move_to_level_payload,
     pack_palette_xy,
+    planckian_xy,
     recall_scene_payload,
     remove_scene_payload,
     store_scene_payload,
@@ -189,6 +190,23 @@ def test_add_color_temperature_scene_payload_without_colour_temperature() -> Non
     assert add_color_temperature_scene_payload(0xDD92, 0x0B, content, 4).hex() == (
         "92dd0b" + "0400" + "00" + "0600" + "01" + "01" + "0800" + "01" + "8f"
     )
+
+
+def test_add_color_temperature_scene_payload_with_xy() -> None:
+    # Dimmed: 60 % and 370 mired, on the Planckian locus x 0.4591 and y 0.4106
+    content = ColorTemperatureSceneContent(level=0x99, mireds=370)
+    assert add_color_temperature_scene_payload(0xDD92, 0x0A, content, 4, fill_xy=True).hex() == (
+        "92dd0a" + "0400" + "00" + "0600" + "01" + "01" + "0800" + "01" + "99"
+        "0003" + "0d" + "8775" + "1e69" + "0000" + "00" + "00" + "00" + "0000" + "7201"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mireds", "xy"),
+    [(153, (0.3129, 0.3231)), (370, (0.4591, 0.4106)), (500, (0.5269, 0.4133))],
+)
+def test_planckian_xy(mireds: int, xy: tuple[float, float]) -> None:
+    assert planckian_xy(mireds) == pytest.approx(xy, abs=1e-4)
 
 
 def test_store_scene_payloads() -> None:
