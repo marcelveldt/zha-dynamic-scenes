@@ -16,7 +16,7 @@ RED = PaletteColor(0.68, 0.31, 80.0)
 GREEN = PaletteColor(0.17, 0.70, 70.0)
 BLUE = PaletteColor(0.15, 0.06, 60.0)
 # the gradient a gradient lamp gets from `palette()`
-PALETTE_GRADIENT = Gradient(points=(RED.xy, GREEN.xy, BLUE.xy))
+PALETTE_GRADIENT = Gradient(points=(RED.xy, BLUE.xy, GREEN.xy))
 
 # Hue features bitmaps read on ZHA: a Signe gradient and a colour lamp without gradient
 FEATURES_GRADIENT = 0x2F

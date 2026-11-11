@@ -157,6 +157,16 @@ def test_assign_palette_gradient_takes_the_first_five_colours() -> None:
     )
 
 
+def test_assign_palette_gradient_runs_from_colour_to_nearest_colour() -> None:
+    # the Hue app shows Golden pond on a Signe with its yellows and oranges in a row
+    custom = palette()
+    custom.colors = [PaletteColor(x, 0.4, 50.0) for x in (0.56, 0.5, 0.57, 0.48, 0.51)]
+    targets = assign_targets([lamp(1)], [], custom)
+    assert targets[lamp(1).ieee].gradient.points == tuple(
+        (x, 0.4) for x in (0.57, 0.56, 0.51, 0.5, 0.48)
+    )
+
+
 async def test_first_start_writes_scene_then_groupcasts() -> None:
     transport, cache, engine = _engine()
     failed = await engine.async_start(

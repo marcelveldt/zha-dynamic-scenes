@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 import itertools
 import logging
+import math
 from typing import Any, Protocol
 
 from .models import Gradient, Lamp, LampKind, Palette, ZoneConfig
@@ -144,8 +145,8 @@ def assign_targets(
 
     Lamps of a cluster share one start state; every other lamp is a cluster of its own.
     The clusters get the palette colours in turn and gradient lamps show the palette
-    colours as gradient. The result only depends on the input, so lamps keep their start
-    colour across activations.
+    colours as a smooth gradient. The result only depends on the input, so lamps keep
+    their start colour across activations.
 
     :param lamps: Lamps of the zone.
     :param clusters: Lists of IEEEs that must share a start colour.
@@ -166,7 +167,7 @@ def assign_targets(
 
     spread = itertools.cycle(palette.colors)
     palette_gradient = Gradient(
-        points=tuple(color.xy for color in palette.colors[:MAX_GRADIENT_POINTS])
+        points=_shortest_path([color.xy for color in palette.colors[:MAX_GRADIENT_POINTS]])
     )
     mirek = palette.color_temperature.mirek if palette.color_temperature else None
     targets: dict[str, LampTarget] = {}
@@ -742,4 +743,14 @@ def _content_from_json(data: list[int] | dict[str, Any]) -> StoredContent:
         mireds=data["mireds"],
         xy=None if xy is None else tuple(xy),
         on=data.get("on", True),
+    )
+
+
+def _shortest_path(points: Sequence[tuple[float, float]]) -> tuple[tuple[float, float], ...]:
+    """Return the points in the order that makes the shortest path through them."""
+    # neighbouring gradient points blend, so like the Hue app the gradient runs along the shortest
+    # path; there are a few points only, so every order is tried and the first shortest one wins
+    return min(
+        itertools.permutations(points),
+        key=lambda path: sum(itertools.starmap(math.dist, itertools.pairwise(path))),
     )
