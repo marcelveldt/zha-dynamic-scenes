@@ -32,6 +32,9 @@ HUE = lamp(1)
 HUE_WHITE = lamp(2, LampKind.PLAIN, max_mireds=None)
 # a GLEDOPTO LED controller whose warmest setting (495 mired) shows as 2237 K
 OTHER = lamp(3, LampKind.COLOR_TEMP, signify=False, max_mireds=495)
+# a relay that only switches on and off, and a dimmer of another brand
+RELAY = lamp(4, LampKind.ON_OFF, signify=False, max_mireds=None)
+DIMMER = lamp(5, LampKind.PLAIN, signify=False, max_mireds=None)
 RELAX = "scene.zone_group_relax"
 SELECT = "select.zone_group_scene"
 # Relax: 56.25 % and 447 mired
@@ -152,6 +155,36 @@ async def test_activate_service_and_select(
         recall_scene_payload(GROUP, 14),
     )
     assert hass.states.get("scene.zone_group_nightlight").state != STATE_UNKNOWN
+
+
+@pytest.mark.parametrize("lamps", [[HUE, RELAY, DIMMER]])
+async def test_on_off_light_is_on_in_the_scenes_at_full_brightness(
+    hass: HomeAssistant, loaded: MockConfigEntry, transport: FakeTransport
+) -> None:
+    turn_on = async_mock_service(hass, "light", "turn_on")
+    turn_off = async_mock_service(hass, "light", "turn_off")
+    # Read is at 100 %, also with another brightness; Nightlight at 10 %
+    await hass.services.async_call(
+        DOMAIN,
+        "activate",
+        {ATTR_ENTITY_ID: "scene.zone_group_read", "brightness": 128},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "scene", "turn_on", {ATTR_ENTITY_ID: "scene.zone_group_nightlight"}, blocking=True
+    )
+
+    # the relay stores no scene, the dimmer does
+    assert [(ieee, command) for ieee, command, _ in transport.requests if ieee != HUE.ieee] == [
+        (DIMMER.ieee, CMD_ENHANCED_ADD_SCENE),
+        (DIMMER.ieee, CMD_STORE_SCENE),
+        (DIMMER.ieee, CMD_ENHANCED_ADD_SCENE),
+        (DIMMER.ieee, CMD_STORE_SCENE),
+    ]
+    assert [call.data for call in turn_on if call.data["entity_id"] == RELAY.entity_id] == [
+        {"entity_id": RELAY.entity_id}
+    ]
+    assert [call.data for call in turn_off] == [{"entity_id": RELAY.entity_id}]
 
 
 @pytest.mark.parametrize(

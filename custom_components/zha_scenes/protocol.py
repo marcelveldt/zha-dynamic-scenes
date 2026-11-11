@@ -64,6 +64,9 @@ _STATE_GRADIENT_COLORS = 0x0100
 _PALETTE_MAX_X = 0.7347
 _PALETTE_MAX_Y = 0.8341
 _ZCL_MAX_XY = 0xFEFF
+# Kelvin where the cubic splines of the Planckian locus (Kang et al. 2002) change
+_LOCUS_SPLIT = 4000
+_LOCUS_WARM_SPLIT = 2222
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +145,30 @@ class GradientSceneContent:
 def level_from_percent(brightness: float) -> int:
     """Return the level 1..254 for a brightness percentage, as the Hue bridge maps it."""
     return max(1, min(MAX_LEVEL, 1 + math.floor(brightness * 253 / 100 + 0.5)))
+
+
+def planckian_xy(mireds: float) -> tuple[float, float]:
+    """
+    Return the CIE 1931 xy of a colour temperature on the Planckian locus.
+
+    Uses the cubic spline of Kang et al. (2002); colour temperatures outside 1667..25000 K
+    are limited to that range.
+
+    :param mireds: Colour temperature in mired.
+    """
+    kelvin = min(25000.0, max(1667.0, 1_000_000 / mireds))
+    t = 1000 / kelvin
+    if kelvin <= _LOCUS_SPLIT:
+        x = -0.2661239 * t**3 - 0.2343589 * t**2 + 0.8776956 * t + 0.179910
+    else:
+        x = -3.0258469 * t**3 + 2.1070379 * t**2 + 0.2226347 * t + 0.240390
+    if kelvin <= _LOCUS_WARM_SPLIT:
+        y = -1.1063814 * x**3 - 1.34811020 * x**2 + 2.18555832 * x - 0.20219683
+    elif kelvin <= _LOCUS_SPLIT:
+        y = -0.9549476 * x**3 - 1.37418593 * x**2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x**3 - 5.87338670 * x**2 + 3.75112997 * x - 0.37001483
+    return x, y
 
 
 def zcl_frame(
@@ -227,12 +254,20 @@ def add_scene_payload(
 
 
 def add_color_temperature_scene_payload(
-    group_id: int, scene_id: int, content: ColorTemperatureSceneContent, transition: int
+    group_id: int,
+    scene_id: int,
+    content: ColorTemperatureSceneContent,
+    transition: int,
+    *,
+    fill_xy: bool = False,
 ) -> bytes:
     """
     Return the payload of an Enhanced Add Scene with on, level and colour temperature.
 
     :param transition: Transition time in 1/10 s used when the scene is applied.
+    :param fill_xy: Also set x and y to the colour temperature's point on the Planckian
+        locus, for lamps that store no colour temperature; a colour lamp recalls such a
+        scene in xy mode.
     """
     payload = (
         add_empty_scene_payload(group_id, scene_id, transition)
@@ -241,10 +276,13 @@ def add_color_temperature_scene_payload(
     )
     if content.mireds is None:
         return payload
-    # the colour set as Hue lamps store it; x and y stay 0, so the lamps recall the scene in
+    x, y = (0, 0)
+    if fill_xy:
+        x, y = (min(_ZCL_MAX_XY, round(value * 65536)) for value in planckian_xy(content.mireds))
+    # the colour set as Hue lamps store it; with x and y 0 the lamps recall the scene in
     # colour temperature mode
     return payload + struct.pack(
-        "<HBHHHBBBHH", CLUSTER_COLOR, 13, 0, 0, 0, 0, 0, 0, 0, content.mireds
+        "<HBHHHBBBHH", CLUSTER_COLOR, 13, x, y, 0, 0, 0, 0, 0, content.mireds
     )
 
 

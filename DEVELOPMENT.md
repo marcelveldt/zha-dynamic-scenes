@@ -78,7 +78,7 @@ in a zone refer to either kind.
 
 1. `zigbee` resolves the zone's ZHA group (or its single light) to its available lights and classifies
    each one: a Signify colour lamp with the Hue effects cluster (`0xFC03`) on its light endpoint animates
-   (`dynamic`); other lights are colour, colour temperature or plain lights.
+   (`dynamic`); other lights are colour, colour temperature, plain or on/off lights.
 2. `engine.assign_targets` gives every cluster the next palette colour as start colour, and gradient lamps
    the first five palette colours as gradient. The result only depends on the zone and the palette, so a
    lamp starts with the same colour every time.
@@ -109,12 +109,17 @@ is unknown or different:
 
 - **Signify lamps** take it silently with an Enhanced Add Scene: on, level and, for lamps with colour
   temperature, the colour set the way Hue lamps report their stored scenes: x, y, enhanced hue, saturation,
-  colour loop active, direction and time, colour temperature (13 bytes). x and y stay 0: with xy filled in
-  a colour lamp recalls the scene in xy mode.
+  colour loop active, direction and time, colour temperature (13 bytes). Colour lamps get x and y 0: with
+  xy filled in they recall the scene in xy mode. Lamps with colour temperature only get the colour
+  temperature's point on the Planckian locus as x and y: older ones (Hue LTC001, LTW013) store x and y
+  but not the colour temperature.
 - **Other lamps** do not all take that set; a GLEDOPTO LED controller stores only a colour temperature and
   recalls the 13-byte set as its coldest white. They get an Enhanced Add Scene without state, are set to the
   scene through Home Assistant (`light.turn_on` without transition, which is their activation) and store
   their state with Store Scene a second later.
+- **On/off lights** (no brightness, like a relay) store nothing: they often hold only a few scenes, which
+  switches bound to the group use. After every recall they are switched through Home Assistant: on in the
+  scenes at 100 % brightness, off in the others, whatever brightness is given.
 
 A lamp without room for the scene (a GLEDOPTO holds 8 scenes) is skipped with a warning; nothing is evicted
 for a standard scene. A lamp that could not store the scene is set through Home Assistant instead, with the

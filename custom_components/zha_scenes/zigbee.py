@@ -351,4 +351,6 @@ def _lamp_kind(device: Device, endpoint_id: int, light: BaseLight) -> LampKind:
         return LampKind.COLOR
     if ColorMode.COLOR_TEMP in light.supported_color_modes:
         return LampKind.COLOR_TEMP
+    if light.supported_color_modes == {ColorMode.ONOFF}:
+        return LampKind.ON_OFF
     return LampKind.PLAIN

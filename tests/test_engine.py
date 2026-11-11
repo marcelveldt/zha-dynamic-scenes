@@ -1,6 +1,7 @@
 """Start colours, lazy scene slots and LRU eviction, standard scenes and their correction."""
 
 import json
+import struct
 from unittest.mock import Mock
 
 import pytest
@@ -72,6 +73,8 @@ WHITE = ColorTemperatureSceneContent(level=143, mireds=447)
 LEVEL_ONLY = ColorTemperatureSceneContent(level=143, mireds=None)
 # a lamp that is not a Hue lamp, like a GLEDOPTO LED controller
 OTHER = lamp(5, LampKind.COLOR_TEMP, signify=False, max_mireds=495)
+# a relay that only switches on and off
+RELAY = lamp(6, LampKind.ON_OFF, signify=False, max_mireds=None)
 
 
 class Setter:
@@ -478,6 +481,25 @@ async def test_hue_lamps_store_the_standard_scene_silently_then_recall_it() -> N
     ]
 
 
+async def test_hue_white_ambiance_lamps_also_store_the_colour_temperature_as_xy() -> None:
+    transport, _, engine = _engine()
+    ambiance = lamp(2, LampKind.COLOR_TEMP)
+    color = lamp(3, LampKind.COLOR)
+    contents = [(lamp(1), WHITE), (ambiance, WHITE), (color, WHITE)]
+    await engine.async_recall(ZONE, 11, contents, Setter(transport))
+
+    # the colour set: x, y, enhanced hue, saturation, loop fields, colour temperature
+    colours = {
+        ieee: struct.unpack("<HHHBBBHH", payload[-13:]) for ieee, _, payload in transport.requests
+    }
+    # 447 mired is x 0.5016 and y 0.4153 on the Planckian locus; colour lamps keep x and y 0
+    assert colours == {
+        lamp(1).ieee: (0, 0, 0, 0, 0, 0, 0, 447),
+        ambiance.ieee: (0x806C, 0x6A4F, 0, 0, 0, 0, 0, 447),
+        color.ieee: (0, 0, 0, 0, 0, 0, 0, 447),
+    }
+
+
 async def test_other_lamp_is_set_to_the_scene_and_stores_its_state() -> None:
     transport, cache, engine = _engine()
     setter = Setter(transport)
@@ -505,6 +527,32 @@ async def test_other_lamp_is_set_to_the_scene_and_stores_its_state() -> None:
     await engine.async_recall(ZONE, 10, [(lamp(1), WHITE), (OTHER, WHITE)], setter)
     assert transport.requests == []
     assert len(setter.calls) == 1
+
+
+async def test_on_off_lights_store_nothing_and_are_set_after_the_recall() -> None:
+    transport, cache, engine = _engine()
+    setter = Setter(transport)
+    full = ColorTemperatureSceneContent(level=254, mireds=None)
+    for _ in range(2):
+        await engine.async_recall(
+            ZONE, 12, [(lamp(1), WHITE), (RELAY, full)], setter, brightness=100
+        )
+
+    assert [(ieee, command) for ieee, command, _ in transport.requests] == [
+        (lamp(1).ieee, CMD_ENHANCED_ADD_SCENE)
+    ]
+    assert cache.stored(RELAY.ieee, GROUP, 12) is None
+    # at every recall, with the scene's level instead of the zone's brightness
+    assert setter.calls == [(RELAY.ieee, full, 4, 1), (RELAY.ieee, full, 4, 1)]
+    assert len(transport.group_commands) == 4
+
+    # a single on/off light gets no Scenes or Level command at all
+    transport.requests.clear()
+    relay_zone = ZoneConfig(group_id=None, entity_id=RELAY.entity_id, ieee=RELAY.ieee)
+    await engine.async_recall(relay_zone, 12, [(RELAY, full)], setter, brightness=100)
+    assert transport.requests == []
+    assert transport.commands == []
+    assert setter.calls[-1] == (RELAY.ieee, full, 4, 0)
 
 
 async def test_brightness_and_transition() -> None:

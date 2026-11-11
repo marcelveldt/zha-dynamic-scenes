@@ -18,7 +18,7 @@ from homeassistant.components.light import (
     DOMAIN as LIGHT_DOMAIN,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON
+from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -162,6 +162,7 @@ class ZhaScenesManager:
         Start a standard scene or a palette on a zone.
 
         The lamps recall a standard scene; it is stored in lamps that do not store it yet.
+        On/off lights store no standard scene and are switched on or off instead.
         Dynamic lamps animate a palette; the other lights get a static colour or colour
         temperature from it. Then sends `SIGNAL_ZONE_ACTIVATED` for the zone.
 
@@ -353,17 +354,24 @@ class ZhaScenesManager:
         *,
         context: Context | None,
     ) -> bool:
-        """Set a lamp to a standard scene state through Home Assistant; return whether it worked."""
-        data: dict[str, Any] = {
-            ATTR_ENTITY_ID: lamp.entity_id,
-            ATTR_BRIGHTNESS: content.level,
-            ATTR_TRANSITION: transition / 10,
-        }
-        if content.mireds is not None:
-            data[ATTR_COLOR_TEMP_KELVIN] = color_temperature_mired_to_kelvin(content.mireds)
+        """
+        Set a lamp to a standard scene state through Home Assistant; return whether it worked.
+
+        An on/off light is switched on at the full level and off otherwise.
+        """
+        service = SERVICE_TURN_ON
+        data: dict[str, Any] = {ATTR_ENTITY_ID: lamp.entity_id}
+        if lamp.kind is LampKind.ON_OFF:
+            if content.level < MAX_LEVEL:
+                service = SERVICE_TURN_OFF
+        else:
+            data[ATTR_BRIGHTNESS] = content.level
+            data[ATTR_TRANSITION] = transition / 10
+            if content.mireds is not None:
+                data[ATTR_COLOR_TEMP_KELVIN] = color_temperature_mired_to_kelvin(content.mireds)
         try:
             await self.hass.services.async_call(
-                LIGHT_DOMAIN, SERVICE_TURN_ON, data, blocking=True, context=context
+                LIGHT_DOMAIN, service, data, blocking=True, context=context
             )
         except HomeAssistantError as err:
             _LOGGER.warning("Could not set %s to the scene: %s", lamp.entity_id, err)

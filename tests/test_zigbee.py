@@ -214,6 +214,18 @@ async def test_lamp_of_another_brand_without_colour_temperature(
     assert async_color_temperature_lights(hass) == {}
 
 
+async def test_on_off_light(
+    hass: HomeAssistant, light_proxy: MagicMock, light_zone: ZoneConfig
+) -> None:
+    light = light_proxy.get_entity_reference("light.lamp_01").entity_data.entity
+    light.device.manufacturer = "SONOFF"
+    light.supported_color_modes = {ColorMode.ONOFF}
+
+    assert async_zone_lamps(hass, light_zone) == [
+        lamp(1, LampKind.ON_OFF, signify=False, max_mireds=None)
+    ]
+
+
 @pytest.mark.usefixtures("light_proxy")
 async def test_zone_lamps(hass: HomeAssistant, light_zone: ZoneConfig) -> None:
     group_zone = ZoneConfig(group_id=GROUP, entity_id="light.zone_group")

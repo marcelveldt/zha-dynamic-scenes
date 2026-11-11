@@ -11,7 +11,7 @@ import itertools
 import logging
 from typing import Any, Protocol
 
-from .models import Gradient, Lamp, Palette, ZoneConfig
+from .models import Gradient, Lamp, LampKind, Palette, ZoneConfig
 from .protocol import (
     CLUSTER_LEVEL,
     CLUSTER_SCENES,
@@ -432,12 +432,13 @@ class SceneEngine:
         Signify lamps take it silently, other lamps are set to it with `set_lamp` and store
         their state. Then recalls it with one groupcast to the zone's group, or a unicast to
         the lamp of a single-light zone, followed by Move to Level for `brightness`. Lamps
-        that could not store the scene are set with `set_lamp` instead.
+        that could not store the scene are set with `set_lamp` instead. On/off lights store
+        nothing; they are set with `set_lamp` to their content, without `brightness`.
 
         :param zone: The zone to recall the scene on.
         :param scene_id: ZCL scene id; the scene is stored under the zone's group, under group
             0x0000 for a single light.
-        :param contents: The lamps of the zone with the content they store for the scene.
+        :param contents: The lamps of the zone with their content for the scene.
         :param set_lamp: Sets a lamp to a scene state through Home Assistant.
         :param brightness: Level 1..254 for all lamps instead of the scene's.
         :param transition: Transition time in 1/10 s instead of the stored one.
@@ -445,10 +446,14 @@ class SceneEngine:
         """
         group_id = SCENE_GROUP if zone.group_id is None else zone.group_id
         fade = SCENE_TRANSITION if transition is None else transition
+        on_off = [(lamp, content) for lamp, content in contents if lamp.kind is LampKind.ON_OFF]
+        dimmable = [
+            (lamp, content) for lamp, content in contents if lamp.kind is not LampKind.ON_OFF
+        ]
         async with self._locks[zone.zone_id]:
             pending = [
                 (lamp, content)
-                for lamp, content in contents
+                for lamp, content in dimmable
                 if self._cache.stored(lamp.ieee, group_id, scene_id) != content
             ]
             signify = [(lamp, content) for lamp, content in pending if lamp.signify]
@@ -459,7 +464,13 @@ class SceneEngine:
                         lamp,
                         CMD_ENHANCED_ADD_SCENE,
                         add_color_temperature_scene_payload(
-                            group_id, scene_id, content, SCENE_TRANSITION
+                            group_id,
+                            scene_id,
+                            content,
+                            SCENE_TRANSITION,
+                            # older white ambiance lamps store xy, not the colour temperature;
+                            # colour lamps would recall a scene with xy in xy mode
+                            fill_xy=lamp.kind is LampKind.COLOR_TEMP,
                         ),
                     )
                     for lamp, content in signify
@@ -483,10 +494,10 @@ class SceneEngine:
             missing += await self._async_store_state(zone, group_id, scene_id, to_store, set_lamp)
 
             payload = recall_scene_payload(group_id, scene_id, transition)
-            await self._async_send(zone, contents, CLUSTER_SCENES, CMD_RECALL_SCENE, payload)
+            await self._async_send(zone, dimmable, CLUSTER_SCENES, CMD_RECALL_SCENE, payload)
             if brightness is not None:
                 payload = move_to_level_payload(brightness, fade)
-                await self._async_send(zone, contents, CLUSTER_LEVEL, CMD_MOVE_TO_LEVEL, payload)
+                await self._async_send(zone, dimmable, CLUSTER_LEVEL, CMD_MOVE_TO_LEVEL, payload)
             await asyncio.gather(
                 *(
                     set_lamp(
@@ -495,7 +506,8 @@ class SceneEngine:
                         fade,
                     )
                     for lamp, content in missing
-                )
+                ),
+                *(set_lamp(lamp, content, fade) for lamp, content in on_off),
             )
 
     async def _async_write(

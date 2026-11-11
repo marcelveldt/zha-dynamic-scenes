@@ -21,6 +21,7 @@ class LampKind(StrEnum):
     COLOR = "color"
     COLOR_TEMP = "color_temp"
     PLAIN = "plain"
+    ON_OFF = "on_off"  # no brightness
 
 
 class GradientMode(StrEnum):
