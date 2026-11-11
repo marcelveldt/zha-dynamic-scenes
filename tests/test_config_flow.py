@@ -159,8 +159,6 @@ async def test_add_zone_with_cluster(
     assert labels[:2] == ["Amber bloom", "Arise"]
     assert "Mine" in labels
     assert not get_schema_suggested_value(result["data_schema"].schema, "palettes")
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"palettes": []})
-    assert result["errors"] == {"palettes": "no_palettes"}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"palettes": ["rolling_hills"]}
     )
@@ -218,6 +216,28 @@ async def test_add_zone_with_cluster(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ZONES] == []
+
+
+async def test_add_zone_without_palettes(
+    hass: HomeAssistant, empty_entry: MockConfigEntry, entity_registry: er.EntityRegistry
+) -> None:
+    group_light = entity_registry.async_get_or_create(
+        "light", "zha", "light_zha_group_0xdd92", suggested_object_id="zone_group"
+    )
+    result = await _menu(hass, empty_entry, "add_zone")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"light": "light.zone_group"}
+    )
+    # no palette chosen: the field is left out
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "zone"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "save"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES] == [
+        {"group_id": GROUP, "entity_id": group_light.id, "clusters": [], "palettes": []}
+    ]
 
 
 async def test_add_single_light_zone(
@@ -285,8 +305,6 @@ async def test_edit_zone_palettes(hass: HomeAssistant, loaded: MockConfigEntry) 
     )
     # the zone's palettes are chosen, except one removed from the library
     assert get_schema_suggested_value(result["data_schema"].schema, "palettes") == ["custom:b"]
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"palettes": []})
-    assert result["errors"] == {"palettes": "no_palettes"}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"palettes": ["custom:b", "ibiza"]}
     )
@@ -295,6 +313,21 @@ async def test_edit_zone_palettes(hass: HomeAssistant, loaded: MockConfigEntry) 
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ZONES][0]["palettes"] == ["custom:b", "ibiza"]
+    await hass.async_block_till_done()
+
+    # back to no palettes at all
+    result = await _menu(hass, loaded, "edit_zone")
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"zone": ZONE_ID})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "zone_palettes"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"palettes": []})
+    assert result["step_id"] == "zone"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "save"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES][0]["palettes"] == []
 
 
 async def test_delete_zone_whose_light_is_gone(

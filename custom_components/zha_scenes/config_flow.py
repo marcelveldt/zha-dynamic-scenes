@@ -265,18 +265,15 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
     async def async_step_zone_palettes(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose the palettes a zone offers, at least one."""
+        """Choose the palettes a zone offers, if any."""
         zone = self._current_zone
-        errors: dict[str, str] = {}
         if user_input is not None:
-            if user_input[CONF_PALETTES]:
-                zone.palettes = user_input[CONF_PALETTES]
-                return await self.async_step_zone()
-            errors[CONF_PALETTES] = "no_palettes"
+            zone.palettes = user_input[CONF_PALETTES]
+            return await self.async_step_zone()
         palettes = self._manager.palettes
         schema = probatio.Schema(
             {
-                probatio.Required(CONF_PALETTES): self._palette_selector(
+                probatio.Optional(CONF_PALETTES, default=list): self._palette_selector(
                     palettes.values(), multiple=True
                 )
             }
@@ -284,10 +281,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         chosen = [palette_id for palette_id in zone.palettes if palette_id in palettes]
         return self.async_show_form(
             step_id="zone_palettes",
-            data_schema=self.add_suggested_values_to_schema(
-                schema, user_input or {CONF_PALETTES: chosen}
-            ),
-            errors=errors,
+            data_schema=self.add_suggested_values_to_schema(schema, {CONF_PALETTES: chosen}),
         )
 
     async def async_step_add_cluster(

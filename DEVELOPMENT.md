@@ -29,8 +29,8 @@ with another Signify Scenes command (`0x02`) that carries on, level, transition 
   without colour. A palette is built-in (see below) or custom, added in the options.
 - **Zone**: a ZHA group. A start is one groupcast to the group, so all lamps start at the same moment. A
   zone can also be a single ZHA light (ZHA makes no group light for a group of one): its starts are unicasts
-  to the lamp, and it has no clusters. A zone offers the standard scenes and the palettes chosen for it, at
-  least one.
+  to the lamp, and it has no clusters. A zone offers the standard scenes and the palettes chosen for it, if
+  any.
 - **Cluster**: lamps of a zone that must share a start colour, for example a pair of lamps on both sides
   of a door. Every other lamp is a cluster of its own.
 

@@ -53,6 +53,29 @@ async def test_scene_per_offered_palette(
     assert hass.states.get(SCENE_COOL_BRIGHT).name == "Zone group Cool bright"
 
 
+async def test_zone_without_palettes(
+    hass: HomeAssistant, loaded: MockConfigEntry, entity_registry: er.EntityRegistry
+) -> None:
+    async_mock_service(hass, "light", "turn_on")
+    await _offer(hass, loaded, [])
+
+    scenes = [
+        entity.unique_id
+        for entity in er.async_entries_for_config_entry(entity_registry, loaded.entry_id)
+        if entity.domain == "scene"
+    ]
+    assert sorted(scenes) == sorted(f"dd92_{key}" for key in STANDARD_SCENES)
+    assert hass.states.get(SELECT).attributes["options"] == [
+        *loaded.runtime_data.standard_scene_names().values()
+    ]
+
+    await hass.services.async_call(
+        "select", "select_option", {ATTR_ENTITY_ID: SELECT, "option": "Nightlight"}, blocking=True
+    )
+    assert hass.states.get(SELECT).state == "Nightlight"
+    assert hass.states.get("scene.zone_group_nightlight").state != STATE_UNKNOWN
+
+
 async def test_builtin_palette_names_are_translated(
     hass: HomeAssistant, loaded: MockConfigEntry
 ) -> None:

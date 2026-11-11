@@ -90,7 +90,7 @@
       },
       "zone_palettes": {
         "title": "Palettes of the zone",
-        "description": "The zone offers each chosen palette as a scene, next to the standard scenes.",
+        "description": "The zone always offers the standard scenes, plus a scene per chosen palette. Palettes are optional.",
         "data": {
           "palettes": "Palettes"
         }
@@ -127,7 +127,6 @@
       "name_taken": "A standard scene or another palette already has this name.",
       "invalid_colors": "Enter 2 to 9 colours as hex RGB, for example #ff8800.",
       "cluster_too_small": "A cluster needs at least two lights.",
-      "no_palettes": "Choose at least one palette.",
       "invalid_warmest_white": "Enter a value from the range above."
     },
     "abort": {
