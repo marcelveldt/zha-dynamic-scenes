@@ -1,5 +1,6 @@
 """Config and options flow."""
 
+import json
 from typing import Any
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, get_schema_suggested_value
 
+from custom_components.zha_scenes.builtin import PALETTES_FILE
 from custom_components.zha_scenes.const import CONF_CORRECTIONS, CONF_ZONES, DOMAIN
 from custom_components.zha_scenes.models import (
     STANDARD_SCENE_KEYS,
@@ -425,6 +427,19 @@ async def test_lamp_correction_without_colour_temperature_lights(
         result = await _menu(hass, empty_entry, "lamp_correction")
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "no_color_temperature_lights"
+
+
+@pytest.mark.parametrize("language", ["en", "nl"])
+def test_menu_titles_take_no_placeholders(language: str) -> None:
+    path = PALETTES_FILE.parent / "translations" / f"{language}.json"
+    translations = json.loads(path.read_text())
+    steps = [*translations["config"]["step"].items(), *translations["options"]["step"].items()]
+    # the frontend shows a menu title without the step's description placeholders
+    assert not [
+        step_id
+        for step_id, step in steps
+        if "menu_options" in step and "{" in step.get("title", "")
+    ]
 
 
 def _field(result: dict, key: str) -> Any:

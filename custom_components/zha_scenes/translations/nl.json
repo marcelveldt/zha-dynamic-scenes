@@ -78,8 +78,8 @@
         }
       },
       "zone": {
-        "title": "Zone {zone}",
-        "description": "Clusters (lampen die met dezelfde kleur starten):\n{clusters}",
+        "title": "Zone bewerken",
+        "description": "**{zone}**\n\nClusters (lampen die met dezelfde kleur starten):\n{clusters}",
         "menu_options": {
           "zone_scenes": "Scènes kiezen",
           "capture_scene": "Huidige stand opslaan als scène",
