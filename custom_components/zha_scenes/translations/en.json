@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Play Hue scenes, the standard whites and the dynamic palettes, on lamps paired to ZHA. Zones and palettes are set up in the options afterwards."
+        "description": "Play Hue scenes, the standard whites and the dynamic scenes, on lamps paired to ZHA. Zones and scenes are set up in the options afterwards."
       }
     },
     "abort": {
@@ -14,16 +14,16 @@
     "step": {
       "init": {
         "menu_options": {
-          "add_palette": "Add a custom palette",
-          "edit_palette": "Edit a custom palette",
-          "remove_palettes": "Remove custom palettes",
+          "add_palette": "Add a custom dynamic scene",
+          "edit_palette": "Edit a custom dynamic scene",
+          "remove_palettes": "Remove custom dynamic scenes",
           "add_zone": "Add a zone",
           "edit_zone": "Edit a zone",
           "lamp_correction": "Lamp correction"
         }
       },
       "add_palette": {
-        "title": "Add a custom palette",
+        "title": "Add a custom dynamic scene",
         "data": {
           "name": "Name",
           "colors": "Colours",
@@ -36,19 +36,19 @@
         }
       },
       "edit_palette": {
-        "title": "Edit a custom palette",
+        "title": "Edit a custom dynamic scene",
         "data": {
-          "palette": "Palette"
+          "palette": "Scene"
         }
       },
       "palette": {
-        "title": "Edit a custom palette",
+        "title": "Edit a custom dynamic scene",
         "data": {
           "name": "Name",
           "colors": "Colours",
           "speed": "Speed",
           "brightness": "Brightness",
-          "delete": "Delete this palette"
+          "delete": "Delete this scene"
         },
         "data_description": {
           "colors": "2 to 9 colours as hex RGB, separated by commas, for example #ff8800, #ffd000, #00a0ff.",
@@ -56,14 +56,14 @@
         }
       },
       "remove_palettes": {
-        "title": "Remove custom palettes",
+        "title": "Remove custom dynamic scenes",
         "data": {
-          "palettes": "Palettes"
+          "palettes": "Scenes"
         }
       },
       "add_zone": {
         "title": "Add a zone",
-        "description": "A zone is a ZHA group whose lamps start a palette together, or a single ZHA light.",
+        "description": "A zone is a ZHA group whose lamps start a scene together, or a single ZHA light.",
         "data": {
           "light": "Light"
         },
@@ -81,18 +81,41 @@
         "title": "Zone {zone}",
         "description": "Clusters (lamps that start with the same colour):\n{clusters}",
         "menu_options": {
-          "zone_palettes": "Choose the palettes",
+          "zone_scenes": "Choose the scenes",
+          "capture_scene": "Save the current state as a scene",
+          "edit_captured_scene": "Edit a saved scene",
           "add_cluster": "Add a cluster",
           "remove_clusters": "Remove clusters",
           "delete_zone": "Delete this zone",
           "save": "Save"
         }
       },
-      "zone_palettes": {
-        "title": "Palettes of the zone",
-        "description": "The zone always offers the standard scenes, plus a scene per chosen palette. Palettes are optional.",
+      "zone_scenes": {
+        "title": "Scenes of the zone",
+        "description": "Choose the standard scenes and dynamic scenes the zone offers. It always offers its saved scenes.",
         "data": {
-          "palettes": "Palettes"
+          "scenes": "Scenes"
+        }
+      },
+      "capture_scene": {
+        "title": "Save the current state as a scene",
+        "description": "Saves how every lamp of the zone is set now: on or off, with its brightness and colour. Lamps that are unavailable now are left out of the scene.",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "edit_captured_scene": {
+        "title": "Edit a saved scene",
+        "data": {
+          "scene": "Scene"
+        }
+      },
+      "captured_scene": {
+        "title": "Edit a saved scene",
+        "data": {
+          "name": "Name",
+          "replace": "Replace with the current state",
+          "delete": "Delete this scene"
         }
       },
       "add_cluster": {
@@ -124,7 +147,7 @@
       }
     },
     "error": {
-      "name_taken": "A standard scene or another palette already has this name.",
+      "name_taken": "Another scene already has this name.",
       "invalid_colors": "Enter 2 to 9 colours as hex RGB, for example #ff8800.",
       "cluster_too_small": "A cluster needs at least two lights.",
       "invalid_warmest_white": "Enter a value from the range above."
@@ -320,11 +343,11 @@
   "services": {
     "activate": {
       "name": "Activate",
-      "description": "Starts a scene on its zone, optionally with another brightness or transition, and a palette with another speed.",
+      "description": "Starts a scene on its zone, optionally with another brightness or transition, and a dynamic scene with another speed.",
       "fields": {
         "speed": {
           "name": "Speed",
-          "description": "Animation speed of a palette from 0 to 1 instead of its own."
+          "description": "Animation speed of a dynamic scene from 0 to 1 instead of its own."
         },
         "brightness": {
           "name": "Brightness",

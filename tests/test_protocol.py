@@ -6,12 +6,12 @@ from custom_components.zha_scenes.protocol import (
     CMD_ADD_HUE_SCENE,
     CMD_DYNAMIC_PALETTE,
     MANUFACTURER_SIGNIFY,
-    ColorTemperatureSceneContent,
     GradientSceneContent,
     SceneContent,
-    add_color_temperature_scene_payload,
+    StaticSceneContent,
     add_empty_scene_payload,
     add_scene_payload,
+    add_static_scene_payload,
     dynamic_palette_payload,
     gradient_scene_payload,
     level_from_percent,
@@ -170,10 +170,10 @@ def test_remove_scene_payload() -> None:
     assert remove_scene_payload(0xDD92, 0x80).hex() == "92dd80"
 
 
-def test_add_color_temperature_scene_payload() -> None:
-    content = ColorTemperatureSceneContent(level=0x8F, mireds=447)
+def test_add_static_scene_payload() -> None:
+    content = StaticSceneContent(level=0x8F, mireds=447)
     assert (
-        add_color_temperature_scene_payload(0xDD92, 0x0B, content, 4).hex()
+        add_static_scene_payload(0xDD92, 0x0B, content, 4).hex()
         == (
             "92dd0b" + "0400" + "00"  # group, scene, transition, empty name
             "0600" + "01" + "01"  # on/off: on
@@ -185,19 +185,36 @@ def test_add_color_temperature_scene_payload() -> None:
     )
 
 
-def test_add_color_temperature_scene_payload_without_colour_temperature() -> None:
-    content = ColorTemperatureSceneContent(level=0x8F, mireds=None)
-    assert add_color_temperature_scene_payload(0xDD92, 0x0B, content, 4).hex() == (
+def test_add_static_scene_payload_without_colour_temperature() -> None:
+    content = StaticSceneContent(level=0x8F, mireds=None)
+    assert add_static_scene_payload(0xDD92, 0x0B, content, 4).hex() == (
         "92dd0b" + "0400" + "00" + "0600" + "01" + "01" + "0800" + "01" + "8f"
     )
 
 
-def test_add_color_temperature_scene_payload_with_xy() -> None:
+def test_add_static_scene_payload_with_xy() -> None:
     # Dimmed: 60 % and 370 mired, on the Planckian locus x 0.4591 and y 0.4106
-    content = ColorTemperatureSceneContent(level=0x99, mireds=370)
-    assert add_color_temperature_scene_payload(0xDD92, 0x0A, content, 4, fill_xy=True).hex() == (
+    content = StaticSceneContent(level=0x99, mireds=370)
+    assert add_static_scene_payload(0xDD92, 0x0A, content, 4, fill_xy=True).hex() == (
         "92dd0a" + "0400" + "00" + "0600" + "01" + "01" + "0800" + "01" + "99"
         "0003" + "0d" + "8775" + "1e69" + "0000" + "00" + "00" + "00" + "0000" + "7201"
+    )
+
+
+def test_add_static_scene_payload_with_a_colour() -> None:
+    content = StaticSceneContent(level=0xC8, mireds=None, xy=(0.5, 0.25))
+    assert add_static_scene_payload(0xDD92, 0x20, content, 4).hex() == (
+        "92dd20" + "0400" + "00" + "0600" + "01" + "01" + "0800" + "01" + "c8"
+        # colour: current x, current y, like the palette scenes
+        "0003" + "04" + "0080" + "0040"
+    )
+
+
+def test_add_static_scene_payload_of_a_lamp_that_is_off() -> None:
+    content = StaticSceneContent(level=0x8F, mireds=447, on=False)
+    # on/off only: off
+    assert add_static_scene_payload(0xDD92, 0x20, content, 4).hex() == (
+        "92dd20" + "0400" + "00" + "0600" + "01" + "00"
     )
 
 

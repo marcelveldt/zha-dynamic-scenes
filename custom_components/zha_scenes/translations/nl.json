@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Speel Hue-scènes af, de standaard witte scènes en de dynamische paletten, op lampen die aan ZHA gekoppeld zijn. Zones en paletten stel je daarna in bij de opties."
+        "description": "Speel Hue-scènes af, de standaard witte scènes en de dynamische scènes, op lampen die aan ZHA gekoppeld zijn. Zones en scènes stel je daarna in bij de opties."
       }
     },
     "abort": {
@@ -14,16 +14,16 @@
     "step": {
       "init": {
         "menu_options": {
-          "add_palette": "Eigen palet toevoegen",
-          "edit_palette": "Eigen palet bewerken",
-          "remove_palettes": "Eigen paletten verwijderen",
+          "add_palette": "Eigen dynamische scène toevoegen",
+          "edit_palette": "Eigen dynamische scène bewerken",
+          "remove_palettes": "Eigen dynamische scènes verwijderen",
           "add_zone": "Zone toevoegen",
           "edit_zone": "Zone bewerken",
           "lamp_correction": "Lampcorrectie"
         }
       },
       "add_palette": {
-        "title": "Eigen palet toevoegen",
+        "title": "Eigen dynamische scène toevoegen",
         "data": {
           "name": "Naam",
           "colors": "Kleuren",
@@ -36,19 +36,19 @@
         }
       },
       "edit_palette": {
-        "title": "Eigen palet bewerken",
+        "title": "Eigen dynamische scène bewerken",
         "data": {
-          "palette": "Palet"
+          "palette": "Scène"
         }
       },
       "palette": {
-        "title": "Eigen palet bewerken",
+        "title": "Eigen dynamische scène bewerken",
         "data": {
           "name": "Naam",
           "colors": "Kleuren",
           "speed": "Snelheid",
           "brightness": "Helderheid",
-          "delete": "Dit palet verwijderen"
+          "delete": "Deze scène verwijderen"
         },
         "data_description": {
           "colors": "2 tot 9 kleuren als hex RGB, gescheiden door komma's, bijvoorbeeld #ff8800, #ffd000, #00a0ff.",
@@ -56,14 +56,14 @@
         }
       },
       "remove_palettes": {
-        "title": "Eigen paletten verwijderen",
+        "title": "Eigen dynamische scènes verwijderen",
         "data": {
-          "palettes": "Paletten"
+          "palettes": "Scènes"
         }
       },
       "add_zone": {
         "title": "Zone toevoegen",
-        "description": "Een zone is een ZHA-groep waarvan de lampen samen een palet starten, of een enkele ZHA-lamp.",
+        "description": "Een zone is een ZHA-groep waarvan de lampen samen een scène starten, of een enkele ZHA-lamp.",
         "data": {
           "light": "Lamp"
         },
@@ -81,18 +81,41 @@
         "title": "Zone {zone}",
         "description": "Clusters (lampen die met dezelfde kleur starten):\n{clusters}",
         "menu_options": {
-          "zone_palettes": "Paletten kiezen",
+          "zone_scenes": "Scènes kiezen",
+          "capture_scene": "Huidige stand opslaan als scène",
+          "edit_captured_scene": "Opgeslagen scène bewerken",
           "add_cluster": "Cluster toevoegen",
           "remove_clusters": "Clusters verwijderen",
           "delete_zone": "Deze zone verwijderen",
           "save": "Opslaan"
         }
       },
-      "zone_palettes": {
-        "title": "Paletten van de zone",
-        "description": "De zone biedt altijd de standaardscènes aan, plus een scène per gekozen palet. Paletten zijn optioneel.",
+      "zone_scenes": {
+        "title": "Scènes van de zone",
+        "description": "Kies de standaardscènes en dynamische scènes die de zone aanbiedt. Opgeslagen scènes biedt de zone altijd aan.",
         "data": {
-          "palettes": "Paletten"
+          "scenes": "Scènes"
+        }
+      },
+      "capture_scene": {
+        "title": "Huidige stand opslaan als scène",
+        "description": "Slaat op hoe elke lamp van de zone nu staat: aan of uit, met zijn helderheid en kleur. Lampen die nu niet beschikbaar zijn blijven buiten de scène.",
+        "data": {
+          "name": "Naam"
+        }
+      },
+      "edit_captured_scene": {
+        "title": "Opgeslagen scène bewerken",
+        "data": {
+          "scene": "Scène"
+        }
+      },
+      "captured_scene": {
+        "title": "Opgeslagen scène bewerken",
+        "data": {
+          "name": "Naam",
+          "replace": "Vervangen door de huidige stand",
+          "delete": "Deze scène verwijderen"
         }
       },
       "add_cluster": {
@@ -124,7 +147,7 @@
       }
     },
     "error": {
-      "name_taken": "Een standaardscène of een ander palet heeft deze naam al.",
+      "name_taken": "Een andere scène heeft deze naam al.",
       "invalid_colors": "Geef 2 tot 9 kleuren op als hex RGB, bijvoorbeeld #ff8800.",
       "cluster_too_small": "Een cluster heeft minstens twee lampen nodig.",
       "invalid_warmest_white": "Geef een waarde uit het bereik hierboven."
@@ -320,11 +343,11 @@
   "services": {
     "activate": {
       "name": "Activeren",
-      "description": "Start een scène op de zone, eventueel met een andere helderheid of overgang, en een palet met een andere snelheid.",
+      "description": "Start een scène op de zone, eventueel met een andere helderheid of overgang, en een dynamische scène met een andere snelheid.",
       "fields": {
         "speed": {
           "name": "Snelheid",
-          "description": "Animatiesnelheid van een palet van 0 tot 1 in plaats van die van het palet."
+          "description": "Animatiesnelheid van een dynamische scène van 0 tot 1 in plaats van de eigen snelheid."
         },
         "brightness": {
           "name": "Helderheid",

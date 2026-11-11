@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 import math
 import re
 from typing import TYPE_CHECKING, Any
@@ -34,9 +35,10 @@ from homeassistant.util.color import color_RGB_to_xy, color_xy_to_RGB
 from homeassistant.util.ulid import ulid_now
 import probatio
 
+from .builtin import STANDARD_SCENES
 from .const import CONF_CORRECTIONS, CONF_ZONES, DEFAULT_SPEED, DOMAIN, MIN_PALETTE_COLORS
-from .engine import CORRECTION_PIVOT
-from .models import Lamp, Palette, PaletteColor, PaletteSource, ZoneConfig
+from .engine import CAPTURED_SCENE_IDS, CORRECTION_PIVOT
+from .models import CapturedScene, Lamp, Palette, PaletteColor, PaletteSource, ZoneConfig
 from .protocol import MAX_PALETTE_COLORS
 from .zigbee import (
     async_color_temperature_lights,
@@ -59,6 +61,9 @@ CONF_LIGHTS = "lights"
 CONF_NAME = "name"
 CONF_PALETTE = "palette"
 CONF_PALETTES = "palettes"
+CONF_REPLACE = "replace"
+CONF_SCENE = "scene"
+CONF_SCENES = "scenes"
 CONF_SPEED = "speed"
 CONF_WARMEST_WHITE = "warmest_white"
 CONF_ZONE = "zone"
@@ -82,6 +87,7 @@ PALETTE_SCHEMA = probatio.Schema(
         ),
     }
 )
+CAPTURED_SCENE_SCHEMA = probatio.Schema({probatio.Required(CONF_NAME): TextSelector()})
 
 
 class ZhaScenesConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -113,6 +119,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         self._zones: dict[str, ZoneConfig] = {}
         self._zone: ZoneConfig | None = None
         self._palette_id: str | None = None
+        self._scene_key: str | None = None
         self._lamp: Lamp | None = None
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -206,7 +213,7 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
                 group_id=groups.get(entity_id), entity_id=entry.id, ieee=lamps.get(entity_id)
             )
             self._zones[self._zone.zone_id] = self._zone
-            return await self.async_step_zone_palettes()
+            return await self.async_step_zone_scenes()
         return self.async_show_form(
             step_id="add_zone",
             data_schema=probatio.Schema(
@@ -247,7 +254,9 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         clusters = [
             ", ".join(names.get(ieee, ieee) for ieee in cluster) for cluster in zone.clusters
         ]
-        menu = ["zone_palettes"]
+        menu = ["zone_scenes", "capture_scene"]
+        if zone.captured_scenes:
+            menu.append("edit_captured_scene")
         if zone.group_id is not None:  # a single light has nothing to cluster
             menu.append("add_cluster")
         if zone.clusters:
@@ -262,27 +271,73 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
             },
         )
 
-    async def async_step_zone_palettes(
+    async def async_step_zone_scenes(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose the palettes a zone offers, if any."""
+        """Choose the standard scenes and palettes a zone offers."""
         zone = self._current_zone
         if user_input is not None:
-            zone.palettes = user_input[CONF_PALETTES]
+            chosen = user_input[CONF_SCENES]
+            zone.standard_scenes = [key for key in STANDARD_SCENES if key in chosen]
+            zone.palettes = [key for key in chosen if key not in STANDARD_SCENES]
             return await self.async_step_zone()
         palettes = self._manager.palettes
+        options = [
+            SelectOptionDict(value=key, label=name)
+            for key, name in self._manager.standard_scene_names().items()
+        ] + self._palette_options(palettes.values())
         schema = probatio.Schema(
             {
-                probatio.Optional(CONF_PALETTES, default=list): self._palette_selector(
-                    palettes.values(), multiple=True
+                probatio.Optional(CONF_SCENES, default=list): SelectSelector(
+                    SelectSelectorConfig(options=options, multiple=True)
                 )
             }
         )
-        chosen = [palette_id for palette_id in zone.palettes if palette_id in palettes]
+        chosen = [
+            *zone.standard_scenes,
+            *(palette_id for palette_id in zone.palettes if palette_id in palettes),
+        ]
         return self.async_show_form(
-            step_id="zone_palettes",
-            data_schema=self.add_suggested_values_to_schema(schema, {CONF_PALETTES: chosen}),
+            step_id="zone_scenes",
+            data_schema=self.add_suggested_values_to_schema(schema, {CONF_SCENES: chosen}),
         )
+
+    async def async_step_capture_scene(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Save the current state of the zone's lamps as a scene."""
+        return await self._async_captured_scene_form("capture_scene", None, user_input)
+
+    async def async_step_edit_captured_scene(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the saved scene to edit."""
+        if user_input is not None:
+            self._scene_key = user_input[CONF_SCENE]
+            return await self.async_step_captured_scene()
+        options = [
+            SelectOptionDict(value=scene.key, label=scene.name)
+            for scene in self._current_zone.captured_scenes
+        ]
+        return self.async_show_form(
+            step_id="edit_captured_scene",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_SCENE): SelectSelector(
+                        SelectSelectorConfig(options=options)
+                    )
+                }
+            ),
+        )
+
+    async def async_step_captured_scene(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Rename, replace or delete a saved scene."""
+        scene = next(
+            other for other in self._current_zone.captured_scenes if other.key == self._scene_key
+        )
+        return await self._async_captured_scene_form("captured_scene", scene, user_input)
 
     async def async_step_add_cluster(
         self, user_input: dict[str, Any] | None = None
@@ -352,7 +407,18 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         return self._async_save()
 
     async def async_step_save(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Save the zone."""
+        """
+        Save the zone.
+
+        Standard and saved scenes the zone no longer offers are removed from its lamps.
+        """
+        zone = self._current_zone
+        removed: set[int] = set()
+        for saved in map(ZoneConfig.from_dict, self.config_entry.options.get(CONF_ZONES, [])):
+            if saved.zone_id == zone.zone_id:
+                removed = _stored_scene_ids(saved) - _stored_scene_ids(zone)
+        if removed:
+            await self._manager.async_remove_scenes(zone, removed)
         return self._async_save()
 
     async def async_step_lamp_correction(
@@ -444,16 +510,24 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         ]
 
     @callback
-    def _name_taken(self, name: str, palette: Palette | None) -> bool:
+    def _name_taken(self, name: str, key: str | None, zones: Iterable[ZoneConfig]) -> bool:
         """
-        Return whether a standard scene or another palette already shows this name.
+        Return whether a standard scene, palette or saved scene of `zones` already has this name.
 
         Zones list their scenes by name.
+
+        :param key: Id of the palette or key of the saved scene being named, which may keep
+            its name.
+        :param zones: The zones whose saved scenes count.
         """
-        taken = [*self._manager.standard_scene_names().values()] + [
-            self._manager.palette_name(other)
-            for other in self._manager.palettes.values()
-            if palette is None or other.palette_id != palette.palette_id
+        taken = [
+            *self._manager.standard_scene_names().values(),
+            *(
+                self._manager.palette_name(palette)
+                for palette in self._manager.palettes.values()
+                if palette.palette_id != key
+            ),
+            *(scene.name for zone in zones for scene in zone.captured_scenes if scene.key != key),
         ]
         return name.casefold() in {other.casefold() for other in taken}
 
@@ -467,7 +541,8 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
             if palette is not None and user_input.get(CONF_DELETE):
                 self._manager.async_remove_palettes([palette.palette_id])
                 return self._async_save()
-            if self._name_taken(user_input[CONF_NAME], palette):
+            own_id = None if palette is None else palette.palette_id
+            if self._name_taken(user_input[CONF_NAME], own_id, self._zones.values()):
                 errors[CONF_NAME] = "name_taken"
             try:
                 if palette is not None and user_input[CONF_COLORS] == _colors_text(palette):
@@ -511,6 +586,53 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
             errors=errors,
         )
 
+    async def _async_captured_scene_form(
+        self, step_id: str, scene: CapturedScene | None, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
+        """Show and handle the form of a saved scene; the zone's Save stores the change."""
+        zone = self._current_zone
+        scenes = zone.captured_scenes
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if scene is not None and user_input.get(CONF_DELETE):
+                scenes.remove(scene)
+                return await self.async_step_zone()
+            name = user_input[CONF_NAME]
+            if self._name_taken(name, None if scene is None else scene.key, [zone]):
+                errors[CONF_NAME] = "name_taken"
+            else:
+                if scene is None:
+                    used = {other.scene_id for other in scenes}
+                    scenes.append(
+                        CapturedScene(
+                            key=f"captured:{ulid_now()}",
+                            name=name,
+                            scene_id=next(i for i in CAPTURED_SCENE_IDS if i not in used),
+                            lamps=self._manager.capture_lamp_states(zone),
+                        )
+                    )
+                else:
+                    lamps = scene.lamps
+                    if user_input.get(CONF_REPLACE):
+                        lamps = self._manager.capture_lamp_states(zone)
+                    scenes[scenes.index(scene)] = replace(scene, name=name, lamps=lamps)
+                return await self.async_step_zone()
+        schema = CAPTURED_SCENE_SCHEMA
+        values: dict[str, Any] = {}
+        if scene is not None:
+            schema = schema.extend(
+                {
+                    probatio.Optional(CONF_REPLACE): BooleanSelector(),
+                    probatio.Optional(CONF_DELETE): BooleanSelector(),
+                }
+            )
+            values = {CONF_NAME: scene.name}
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self.add_suggested_values_to_schema(schema, user_input or values),
+            errors=errors,
+        )
+
     @callback
     def _async_save(self) -> ConfigFlowResult:
         """Save the options; a changed zone setup reloads the integration."""
@@ -546,7 +668,14 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
         self, palettes: Iterable[Palette], *, multiple: bool = False
     ) -> SelectSelector:
         """Return a selector of palettes by name."""
-        options = sorted(
+        return SelectSelector(
+            SelectSelectorConfig(options=self._palette_options(palettes), multiple=multiple)
+        )
+
+    @callback
+    def _palette_options(self, palettes: Iterable[Palette]) -> list[SelectOptionDict]:
+        """Return palettes as selector options, sorted by name."""
+        return sorted(
             (
                 SelectOptionDict(
                     value=palette.palette_id, label=self._manager.palette_name(palette)
@@ -555,7 +684,13 @@ class ZhaScenesOptionsFlow(OptionsFlowWithReload):
             ),
             key=lambda option: option["label"].casefold(),
         )
-        return SelectSelector(SelectSelectorConfig(options=options, multiple=multiple))
+
+
+def _stored_scene_ids(zone: ZoneConfig) -> set[int]:
+    """Return the ids of the standard and saved scenes a zone stores in its lamps."""
+    return {STANDARD_SCENES[key].scene_id for key in zone.standard_scenes} | {
+        scene.scene_id for scene in zone.captured_scenes
+    }
 
 
 def _parse_colors(text: str) -> list[tuple[float, float]]:

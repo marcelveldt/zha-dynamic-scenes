@@ -1,4 +1,4 @@
-"""Scene entities: one per standard scene and per palette a zone offers."""
+"""Scene entities: one per standard scene, saved scene and palette a zone offers."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ZhaScenesConfigEntry
-from .builtin import STANDARD_SCENES
 from .const import ATTR_SPEED, SIGNAL_LIBRARY_UPDATED, SIGNAL_ZONE_ACTIVATED
 from .manager import ZhaScenesManager
 from .models import PaletteSource, ZoneConfig
@@ -33,12 +32,14 @@ async def async_setup_entry(
 
     @callback
     def async_sync_entities() -> None:
-        """Add scenes for newly offered palettes and remove those no longer offered."""
-        # zone, key and the own name of a custom palette
+        """Add newly offered scenes and remove those no longer offered."""
+        # zone, key and the own name of a custom palette or saved scene
         offered: dict[str, tuple[ZoneConfig, str, str | None]] = {}
         for zone in manager.zones.values():
-            for key in STANDARD_SCENES:
+            for key in zone.standard_scenes:
                 offered[_unique_id(zone, key)] = (zone, key, None)
+            for scene in zone.captured_scenes:
+                offered[_unique_id(zone, scene.key)] = (zone, scene.key, scene.name)
             for palette in manager.zone_palettes(zone):
                 name = palette.name if palette.source is PaletteSource.CUSTOM else None
                 offered[_unique_id(zone, palette.palette_id)] = (zone, palette.palette_id, name)
@@ -64,7 +65,7 @@ async def async_setup_entry(
 
 class ZoneScene(BaseScene):
     """
-    A standard scene or palette of a zone; activating it starts it on the zone.
+    A standard scene, saved scene or palette of a zone; activating it starts it on the zone.
 
     The state is the time it last started on the zone, also when the zone's select
     started it.
@@ -83,8 +84,9 @@ class ZoneScene(BaseScene):
         """
         Initialize the scene on the device of the zone's ZHA group or light.
 
-        :param key: Key of a standard scene or id of a palette.
-        :param name: Name of a custom palette; other scenes show their translated name.
+        :param key: Key of a standard or saved scene, or id of a palette.
+        :param name: Name of a custom palette or saved scene; other scenes show their
+            translated name.
         """
         self._manager = manager
         self._zone_id = zone.zone_id

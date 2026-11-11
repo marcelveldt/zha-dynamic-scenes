@@ -16,10 +16,10 @@ from custom_components.zha_scenes.protocol import (
     CMD_MOVE_TO_LEVEL,
     CMD_RECALL_SCENE,
     CMD_STORE_SCENE,
-    ColorTemperatureSceneContent,
     SceneContent,
-    add_color_temperature_scene_payload,
+    StaticSceneContent,
     add_empty_scene_payload,
+    add_static_scene_payload,
     move_to_level_payload,
     recall_scene_payload,
     store_scene_payload,
@@ -38,9 +38,9 @@ DIMMER = lamp(5, LampKind.PLAIN, signify=False, max_mireds=None)
 RELAX = "scene.zone_group_relax"
 SELECT = "select.zone_group_scene"
 # Relax: 56.25 % and 447 mired
-RELAX_HUE = ColorTemperatureSceneContent(level=143, mireds=447)
-RELAX_WHITE = ColorTemperatureSceneContent(level=143, mireds=None)
-RELAX_OTHER = ColorTemperatureSceneContent(level=143, mireds=495)
+RELAX_HUE = StaticSceneContent(level=143, mireds=447)
+RELAX_WHITE = StaticSceneContent(level=143, mireds=None)
+RELAX_OTHER = StaticSceneContent(level=143, mireds=495)
 
 
 @pytest.fixture
@@ -90,12 +90,12 @@ async def test_first_activation_stores_the_scene_then_recalls_it(
         (
             HUE.ieee,
             CMD_ENHANCED_ADD_SCENE,
-            add_color_temperature_scene_payload(GROUP, 11, RELAX_HUE, 4),
+            add_static_scene_payload(GROUP, 11, RELAX_HUE, 4),
         ),
         (
             HUE_WHITE.ieee,
             CMD_ENHANCED_ADD_SCENE,
-            add_color_temperature_scene_payload(GROUP, 11, RELAX_WHITE, 4),
+            add_static_scene_payload(GROUP, 11, RELAX_WHITE, 4),
         ),
         (OTHER.ieee, CMD_ENHANCED_ADD_SCENE, add_empty_scene_payload(GROUP, 11, 4)),
         (OTHER.ieee, CMD_STORE_SCENE, store_scene_payload(GROUP, 11)),

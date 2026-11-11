@@ -13,10 +13,10 @@ from custom_components.zha_scenes.protocol import (
     CLUSTER_SCENES,
     CMD_ENHANCED_ADD_SCENE,
     CMD_RECALL_SCENE,
-    ColorTemperatureSceneContent,
     SceneContent,
-    add_color_temperature_scene_payload,
+    StaticSceneContent,
     add_scene_payload,
+    add_static_scene_payload,
     dynamic_palette_payload,
     recall_scene_payload,
 )
@@ -66,9 +66,21 @@ def entry(hass: HomeAssistant, lamp_light: er.RegistryEntry) -> MockConfigEntry:
 def test_zone_ids_and_stored_form() -> None:
     group = ZoneConfig.from_dict(GROUP_ZONE)
     assert (group.zone_id, group.unique_id) == (str(GROUP), "dd92")
-    assert group.to_dict() == GROUP_ZONE
+    # a zone stored without them offers every standard scene and has no saved scenes
+    assert group.to_dict() == {
+        **GROUP_ZONE,
+        "standard_scenes": list(STANDARD_SCENES),
+        "captured_scenes": [],
+    }
 
-    stored = {**GROUP_ZONE, "group_id": None, "palettes": ["custom:a"], "ieee": IEEE}
+    stored = {
+        **GROUP_ZONE,
+        "group_id": None,
+        "palettes": ["custom:a"],
+        "ieee": IEEE,
+        "standard_scenes": ["relax"],
+        "captured_scenes": [],
+    }
     single = ZoneConfig.from_dict(stored)
     assert (single.zone_id, single.unique_id) == (IEEE, IEEE)
     assert single.to_dict() == stored
@@ -146,9 +158,9 @@ async def test_standard_scene_is_stored_in_group_zero_and_recalled_with_a_unicas
     for _ in range(2):
         await hass.services.async_call("scene", "turn_on", scene, blocking=True)
 
-    relax = ColorTemperatureSceneContent(level=143, mireds=447)
+    relax = StaticSceneContent(level=143, mireds=447)
     assert transport.requests == [
-        (IEEE, CMD_ENHANCED_ADD_SCENE, add_color_temperature_scene_payload(0, 11, relax, 4))
+        (IEEE, CMD_ENHANCED_ADD_SCENE, add_static_scene_payload(0, 11, relax, 4))
     ]
     recall = (IEEE, CLUSTER_SCENES, CMD_RECALL_SCENE, recall_scene_payload(0, 11))
     assert transport.commands == [recall, recall]
@@ -162,7 +174,7 @@ async def test_standard_scene_is_stored_in_group_zero_and_recalled_with_a_unicas
     assert (
         IEEE,
         CMD_ENHANCED_ADD_SCENE,
-        add_color_temperature_scene_payload(GROUP, 11, relax, 4),
+        add_static_scene_payload(GROUP, 11, relax, 4),
     ) in transport.requests
 
     # rewriting the single light forgets only its own scenes
@@ -176,5 +188,5 @@ async def test_standard_scene_is_stored_in_group_zero_and_recalled_with_a_unicas
     assert transport.requests == []
     await hass.services.async_call("scene", "turn_on", scene, blocking=True)
     assert transport.requests == [
-        (IEEE, CMD_ENHANCED_ADD_SCENE, add_color_temperature_scene_payload(0, 11, relax, 4))
+        (IEEE, CMD_ENHANCED_ADD_SCENE, add_static_scene_payload(0, 11, relax, 4))
     ]
