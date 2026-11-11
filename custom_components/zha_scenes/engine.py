@@ -1,11 +1,10 @@
-"""Start colours, lazily stored scenes, the dynamic palette start and the standard scene recall."""
+"""Start colours, lazily stored scenes, the dynamic palette start and the static scene recall."""
 
 from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-import contextlib
 from dataclasses import dataclass, replace
 import itertools
 import logging
@@ -25,12 +24,12 @@ from .protocol import (
     MANUFACTURER_SIGNIFY,
     STATUS_INSUFFICIENT_SPACE,
     STATUS_SUCCESS,
-    ColorTemperatureSceneContent,
     GradientSceneContent,
     SceneContent,
-    add_color_temperature_scene_payload,
+    StaticSceneContent,
     add_empty_scene_payload,
     add_scene_payload,
+    add_static_scene_payload,
     dynamic_palette_payload,
     gradient_scene_payload,
     move_to_level_payload,
@@ -43,6 +42,8 @@ _LOGGER = logging.getLogger(__name__)
 
 FIRST_SCENE_ID = 0x80
 LAST_SCENE_ID = 0xFE
+# ids of the saved scenes, stored under the zone's group like the standard scenes
+CAPTURED_SCENE_IDS = range(0x20, 0x80)
 # like the Hue bridge: scenes of a real group would be lost when a lamp leaves that group
 # or when a Remove All Scenes is sent to it
 SCENE_GROUP = 0x0000
@@ -54,10 +55,10 @@ SETTLE_TIME = 1.0
 CORRECTION_PIVOT = 300
 
 type PaletteContent = SceneContent | GradientSceneContent
-type StoredContent = PaletteContent | ColorTemperatureSceneContent
+type StoredContent = PaletteContent | StaticSceneContent
 # sets a lamp to a scene state through Home Assistant with a transition in 1/10 s; returns
 # whether that worked, never raises
-type LampSetter = Callable[[Lamp, ColorTemperatureSceneContent, int], Awaitable[bool]]
+type LampSetter = Callable[[Lamp, StaticSceneContent, int], Awaitable[bool]]
 
 
 class TransportError(Exception):
@@ -220,7 +221,7 @@ class SceneCache:
         # zone id -> palette id -> {"scene_id": int, "used": int}
         self._slots: dict[str, dict[str, dict[str, int]]] = data.get("slots", {})
         # ieee -> `scene_key` -> [level, x, y], {"level": int, "points": [[x, y]], "style": int}
-        # or {"level": int, "mireds": int | None}
+        # or {"level": int, "mireds": int | None} with "xy": [x, y] and "on": false when set
         self._scenes: dict[str, dict[str, list[int] | dict[str, Any]]] = data.get("scenes", {})
         # ieee -> whether the lamp shows gradients
         self._gradient: dict[str, bool] = data.get("gradient", {})
@@ -341,7 +342,7 @@ class SceneCache:
 
 
 class SceneEngine:
-    """Stores scenes in the lamps when needed, starts palettes and recalls standard scenes."""
+    """Stores scenes in the lamps when needed, starts palettes and recalls static scenes."""
 
     def __init__(self, transport: SceneTransport, cache: SceneCache) -> None:
         """Initialize the engine."""
@@ -419,14 +420,14 @@ class SceneEngine:
         self,
         zone: ZoneConfig,
         scene_id: int,
-        contents: Sequence[tuple[Lamp, ColorTemperatureSceneContent]],
+        contents: Sequence[tuple[Lamp, StaticSceneContent]],
         set_lamp: LampSetter,
         *,
         brightness: int | None = None,
         transition: int | None = None,
     ) -> None:
         """
-        Recall a standard scene on a zone.
+        Recall a standard or saved scene on a zone.
 
         First stores the scene in the lamps whose stored content is unknown or different:
         Signify lamps take it silently, other lamps are set to it with `set_lamp` and store
@@ -463,7 +464,7 @@ class SceneEngine:
                     self._async_request(
                         lamp,
                         CMD_ENHANCED_ADD_SCENE,
-                        add_color_temperature_scene_payload(
+                        add_static_scene_payload(
                             group_id,
                             scene_id,
                             content,
@@ -484,8 +485,8 @@ class SceneEngine:
                     for lamp, _ in other
                 ),
             )
-            missing: list[tuple[Lamp, ColorTemperatureSceneContent]] = []
-            to_store: list[tuple[Lamp, ColorTemperatureSceneContent]] = []
+            missing: list[tuple[Lamp, StaticSceneContent]] = []
+            to_store: list[tuple[Lamp, StaticSceneContent]] = []
             for (lamp, content), status in zip([*signify, *other], added, strict=True):
                 if status == STATUS_SUCCESS and not lamp.signify:
                     to_store.append((lamp, content))
@@ -509,6 +510,41 @@ class SceneEngine:
                 ),
                 *(set_lamp(lamp, content, fade) for lamp, content in on_off),
             )
+
+    async def async_remove(
+        self, zone: ZoneConfig, scene_ids: Iterable[int], lamps: Sequence[Lamp]
+    ) -> None:
+        """
+        Remove standard or saved scenes of a zone from its lamps and forget them.
+
+        On/off lights store no such scenes and are left alone. A lamp that does not answer is
+        logged and may keep a scene.
+
+        :param scene_ids: ZCL scene ids; the scenes are stored under the zone's group, under
+            group 0x0000 for a single light.
+        :param lamps: The lamps of the zone.
+        """
+        group_id = SCENE_GROUP if zone.group_id is None else zone.group_id
+        ids = sorted(scene_ids)
+        removals = [
+            (lamp, scene_id)
+            for lamp in lamps
+            if lamp.kind is not LampKind.ON_OFF
+            for scene_id in ids
+        ]
+        async with self._locks[zone.zone_id]:
+            self._cache.forget_scenes(group_id, ids, zone.ieee)
+            answered = await asyncio.gather(
+                *(self._async_remove(lamp, group_id, scene_id) for lamp, scene_id in removals)
+            )
+        for (lamp, scene_id), done in zip(removals, answered, strict=True):
+            if not done:
+                _LOGGER.warning(
+                    "%s did not answer the removal of scene 0x%02x of zone %s",
+                    lamp.entity_id,
+                    scene_id,
+                    zone.zone_id,
+                )
 
     async def _async_write(
         self,
@@ -551,9 +587,9 @@ class SceneEngine:
         zone: ZoneConfig,
         group_id: int,
         scene_id: int,
-        pending: Sequence[tuple[Lamp, ColorTemperatureSceneContent]],
+        pending: Sequence[tuple[Lamp, StaticSceneContent]],
         set_lamp: LampSetter,
-    ) -> list[tuple[Lamp, ColorTemperatureSceneContent]]:
+    ) -> list[tuple[Lamp, StaticSceneContent]]:
         """
         Set lamps that hold an empty scene entry to the scene and store their state in it.
 
@@ -581,7 +617,7 @@ class SceneEngine:
     async def _async_send(
         self,
         zone: ZoneConfig,
-        contents: Sequence[tuple[Lamp, ColorTemperatureSceneContent]],
+        contents: Sequence[tuple[Lamp, StaticSceneContent]],
         cluster_id: int,
         command_id: int,
         payload: bytes,
@@ -608,7 +644,7 @@ class SceneEngine:
         lamp: Lamp,
         group_id: int,
         scene_id: int,
-        content: ColorTemperatureSceneContent,
+        content: StaticSceneContent,
         *,
         status: int | None,
     ) -> bool:
@@ -653,14 +689,13 @@ class SceneEngine:
         """Remove a palette's scene from the zone's lamps and free its slot."""
         scene_id = self._cache.release(zone_id, palette_id)
         _LOGGER.debug("Evicting scene 0x%02x of zone %s", scene_id, zone_id)
-        await asyncio.gather(*(self._async_remove(lamp, scene_id) for lamp in lamps))
+        # a lamp without the scene or response is fine
+        await asyncio.gather(*(self._async_remove(lamp, SCENE_GROUP, scene_id) for lamp in lamps))
 
-    async def _async_remove(self, lamp: Lamp, scene_id: int) -> None:
-        """Remove a scene from one lamp; a lamp without the scene or response is fine."""
-        with contextlib.suppress(TransportError):
-            await self._transport.async_scene_request(
-                lamp, CMD_REMOVE_SCENE, remove_scene_payload(SCENE_GROUP, scene_id)
-            )
+    async def _async_remove(self, lamp: Lamp, group_id: int, scene_id: int) -> bool:
+        """Remove a scene from one lamp; return whether the lamp answered, with or without it."""
+        payload = remove_scene_payload(group_id, scene_id)
+        return await self._async_request(lamp, CMD_REMOVE_SCENE, payload) is not None
 
     async def _async_read_gradient(self, lamp: Lamp) -> None:
         """Ask a lamp whether it shows gradients and remember the answer."""
@@ -680,8 +715,14 @@ def _content_to_json(content: StoredContent) -> list[int] | dict[str, Any]:
             "points": [list(point) for point in content.points],
             "style": content.style,
         }
-    if isinstance(content, ColorTemperatureSceneContent):
-        return {"level": content.level, "mireds": content.mireds}
+    if isinstance(content, StaticSceneContent):
+        data: dict[str, Any] = {"level": content.level, "mireds": content.mireds}
+        # only when set, so the content of a standard scene keeps its form
+        if content.xy is not None:
+            data["xy"] = list(content.xy)
+        if not content.on:
+            data["on"] = False
+        return data
     return [content.level, content.x, content.y]
 
 
@@ -695,4 +736,10 @@ def _content_from_json(data: list[int] | dict[str, Any]) -> StoredContent:
             points=tuple((x, y) for x, y in data["points"]),
             style=data["style"],
         )
-    return ColorTemperatureSceneContent(level=data["level"], mireds=data["mireds"])
+    xy = data.get("xy")
+    return StaticSceneContent(
+        level=data["level"],
+        mireds=data["mireds"],
+        xy=None if xy is None else tuple(xy),
+        on=data.get("on", True),
+    )

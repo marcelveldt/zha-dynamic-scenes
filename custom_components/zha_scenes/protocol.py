@@ -1,5 +1,5 @@
 """
-ZCL frames for Hue dynamic palettes, standard scenes and the scenes they start from.
+ZCL frames for Hue dynamic palettes, standard and saved scenes and the scenes they start from.
 
 Pure encoding, no Home Assistant or zigpy imports.
 """
@@ -99,17 +99,21 @@ class SceneContent:
 
 
 @dataclass(frozen=True, slots=True)
-class ColorTemperatureSceneContent:
+class StaticSceneContent:
     """
-    State a lamp stores for a standard scene: on, level and colour temperature.
+    State a lamp stores for a standard or saved scene: on, level and colour temperature or colour.
 
     :param level: Level 1..254.
-    :param mireds: Colour temperature in mired; None for a lamp without colour temperature,
-        which stores on and level only.
+    :param mireds: Colour temperature in mired; None with `xy`, or for a lamp without colour
+        temperature, which stores on and level only.
+    :param xy: Colour as CIE 1931 xy, stored instead of a colour temperature.
+    :param on: Whether the lamp is on; a lamp that is off stores only that.
     """
 
     level: int
     mireds: int | None
+    xy: tuple[float, float] | None = None
+    on: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,32 +257,33 @@ def add_scene_payload(
     )
 
 
-def add_color_temperature_scene_payload(
+def add_static_scene_payload(
     group_id: int,
     scene_id: int,
-    content: ColorTemperatureSceneContent,
+    content: StaticSceneContent,
     transition: int,
     *,
     fill_xy: bool = False,
 ) -> bytes:
     """
-    Return the payload of an Enhanced Add Scene with on, level and colour temperature.
+    Return the payload of an Enhanced Add Scene with on, level and colour temperature or colour.
 
     :param transition: Transition time in 1/10 s used when the scene is applied.
     :param fill_xy: Also set x and y to the colour temperature's point on the Planckian
         locus, for lamps that store no colour temperature; a colour lamp recalls such a
         scene in xy mode.
     """
-    payload = (
-        add_empty_scene_payload(group_id, scene_id, transition)
-        + struct.pack("<HBB", CLUSTER_ON_OFF, 1, 1)
-        + struct.pack("<HBB", CLUSTER_LEVEL, 1, content.level)
-    )
+    payload = add_empty_scene_payload(group_id, scene_id, transition)
+    payload += struct.pack("<HBB", CLUSTER_ON_OFF, 1, int(content.on))
+    if not content.on:
+        return payload
+    payload += struct.pack("<HBB", CLUSTER_LEVEL, 1, content.level)
+    if content.xy is not None:
+        # the colour set the palette scenes store
+        return payload + struct.pack("<HBHH", CLUSTER_COLOR, 4, *_zcl_xy(content.xy))
     if content.mireds is None:
         return payload
-    x, y = (0, 0)
-    if fill_xy:
-        x, y = (min(_ZCL_MAX_XY, round(value * 65536)) for value in planckian_xy(content.mireds))
+    x, y = _zcl_xy(planckian_xy(content.mireds)) if fill_xy else (0, 0)
     # the colour set as Hue lamps store it; with x and y 0 the lamps recall the scene in
     # colour temperature mode
     return payload + struct.pack(
@@ -346,6 +351,11 @@ def gradient_scene_payload(
 def remove_scene_payload(group_id: int, scene_id: int) -> bytes:
     """Return the payload of a standard Remove Scene."""
     return struct.pack("<HB", group_id, scene_id)
+
+
+def _zcl_xy(xy: tuple[float, float]) -> tuple[int, int]:
+    """Return CIE xy as ZCL CurrentX and CurrentY."""
+    return min(_ZCL_MAX_XY, round(xy[0] * 65536)), min(_ZCL_MAX_XY, round(xy[1] * 65536))
 
 
 def _color_block(colors: Sequence[tuple[float, float]], *, style: int) -> bytes:

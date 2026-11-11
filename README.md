@@ -1,8 +1,9 @@
 # ZHA Scenes
 
 Play Philips Hue scenes on lamps paired to ZHA instead of a Hue bridge: the nine standard whites of the
-Hue app (Relax, Read, Concentrate, ...) on every lamp, and the dynamic scenes, the gallery palettes that
-animate, on Hue lamps. It ships with 44 palettes of the Hue gallery, and you can add your own.
+Hue app (Relax, Read, Concentrate, ...) on every lamp, and the dynamic scenes of the Hue gallery that
+animate, on Hue lamps. It ships with 44 dynamic scenes of the Hue gallery, and you can add your own or
+save the current state of a zone's lamps as a scene.
 
 The lamps store the scenes and run the animation themselves, just like with a Hue bridge. Home Assistant
 only sends a few Zigbee frames when a scene starts: all lamps change at the same moment, no colour loop on
@@ -11,10 +12,10 @@ the host, and lamps that share a colour stay in sync.
 ## Requirements
 
 - Home Assistant 2026.11 or newer, with ZHA.
-- Standard scenes: any ZHA light with scenes.
+- Standard and saved scenes: any ZHA light with scenes.
 - Dynamic scenes: Hue colour lamps with current firmware. Gradient lamps (Signe, gradient lightstrips) show
-  the palette along the lamp. Other lights in a zone get a fixed colour or colour temperature from the
-  palette.
+  the scene's colours along the lamp. Other lights in a zone get a fixed colour or colour temperature from
+  the scene.
 
 ## Installation
 
@@ -27,9 +28,12 @@ the host, and lamps that share a colour stay in sync.
 
 1. Add the integration under *Settings > Devices & services > Add integration > ZHA Scenes*.
 2. Select *Configure* on the integration to set it up:
-   - **Palettes** (optional): add your own palettes from hex colours, next to the built-in ones.
-   - **Zones:** pick a ZHA group (or a single ZHA light) and choose the palettes it offers, from the
-     built-in palettes and your own. A zone without palettes offers only the standard scenes.
+   - **Custom dynamic scenes** (optional): add your own dynamic scenes from hex colours, next to the
+     built-in ones.
+   - **Zones:** pick a ZHA group (or a single ZHA light) and choose the scenes it offers: the standard
+     scenes (a new zone offers all of them) and the dynamic scenes, built-in and your own.
+   - **Saved scenes** (optional): set the lamps of a zone as you like and save their current state as a
+     scene of the zone: per lamp on or off, with its brightness and colour or colour temperature.
    - **Clusters** (optional): lamps of a zone that always share a colour, for example the two lamps on
      both sides of a door.
    - **Lamp correction** (optional): some LED controllers show warm whites too cold. Enter the warmest
@@ -37,13 +41,14 @@ the host, and lamps that share a colour stay in sync.
 
 ## Usage
 
-- Every zone gets a scene entity per standard scene and per palette, and a select entity to pick one.
+- Every zone gets a scene entity per scene it offers, and a select entity to pick one.
 - `scene.turn_on` starts a scene. The `zha_scenes.activate` action can override brightness and
-  transition, and the speed of a palette.
+  transition, and the speed of a dynamic scene.
 - The first start of a scene stores it in the lamps. Lights of other brands switch to it without
-  transition that first time.
-- Lights that only switch on and off (like a relay) store no standard scenes: they are on in the scenes
-  at full brightness and off in the others.
+  transition that first time. Standard and saved scenes a zone no longer offers are removed from its
+  lamps when you save the zone.
+- Lights that only switch on and off (like a relay) store no standard or saved scenes: they are on in the
+  standard scenes at full brightness and off in the others, and in a saved scene as they were saved.
 - Dimming and switching the ZHA group work as usual; the animation keeps running.
 
 ### Blueprint: Hue Tap Dial

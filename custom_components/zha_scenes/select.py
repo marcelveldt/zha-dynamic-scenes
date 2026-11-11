@@ -1,4 +1,4 @@
-"""Per zone select entity to start a standard scene or palette."""
+"""Per zone select entity to start a standard scene, saved scene or palette."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def async_setup_entry(
 
 class ZoneSceneSelect(SelectEntity, RestoreEntity):
     """
-    The standard scenes and palettes of a zone; selecting one starts it.
+    The standard scenes, saved scenes and palettes of a zone; selecting one starts it.
 
     The state is the last started scene: lamps do not report what they run.
     """
@@ -100,8 +100,10 @@ class ZoneSceneSelect(SelectEntity, RestoreEntity):
 
     @callback
     def _refresh_options(self) -> None:
-        """Read the scenes the zone offers: the standard scenes, then its palettes by name."""
-        self._keys = {name: key for key, name in self._manager.standard_scene_names().items()}
+        """Read the scenes the zone offers: standard scenes, saved scenes, then palettes by name."""
+        names = self._manager.standard_scene_names()
+        self._keys = {names[key]: key for key in self._zone.standard_scenes}
+        self._keys.update((scene.name, scene.key) for scene in self._zone.captured_scenes)
         self._keys.update(
             (self._manager.palette_name(palette), palette.palette_id)
             for palette in self._manager.zone_palettes(self._zone)

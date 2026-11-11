@@ -12,7 +12,7 @@ from custom_components.zha_scenes.builtin import (
     async_scene_names,
 )
 from custom_components.zha_scenes.const import MIN_PALETTE_COLORS
-from custom_components.zha_scenes.models import PaletteSource
+from custom_components.zha_scenes.models import STANDARD_SCENE_KEYS, PaletteSource
 from custom_components.zha_scenes.protocol import MAX_PALETTE_COLORS
 
 TRANSLATIONS = PALETTES_FILE.parent / "translations"
@@ -46,6 +46,8 @@ def test_standard_scenes() -> None:
         (18, 100, 250),
     ]
     assert all(key == scene.key for key, scene in STANDARD_SCENES.items())
+    # the keys zones offer by default
+    assert tuple(STANDARD_SCENES) == STANDARD_SCENE_KEYS
 
 
 def test_every_scene_is_named_in_each_language() -> None:

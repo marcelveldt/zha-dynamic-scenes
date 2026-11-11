@@ -12,18 +12,30 @@ from typing import Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
+    ATTR_COLOR_MODE,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_TRANSITION,
     ATTR_XY_COLOR,
+    COLOR_MODES_COLOR,
     DOMAIN as LIGHT_DOMAIN,
+    ColorMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON
-from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+    STATE_OFF,
+    STATE_ON,
+)
+from homeassistant.core import Context, HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
-from homeassistant.util.color import color_temperature_mired_to_kelvin
+from homeassistant.util.color import (
+    color_temperature_kelvin_to_mired,
+    color_temperature_mired_to_kelvin,
+)
 
 from .builtin import STANDARD_SCENES, async_builtin_palettes, async_scene_names
 from .const import (
@@ -36,6 +48,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from .engine import (
+    CAPTURED_SCENE_IDS,
     SCENE_GROUP,
     LampTarget,
     PaletteContent,
@@ -46,12 +59,12 @@ from .engine import (
     corrected_mireds,
     scene_key,
 )
-from .models import Lamp, LampKind, Palette, PaletteSource, StandardScene, ZoneConfig
+from .models import Lamp, LampKind, LampState, Palette, PaletteSource, StandardScene, ZoneConfig
 from .protocol import (
     MAX_LEVEL,
-    ColorTemperatureSceneContent,
     GradientSceneContent,
     SceneContent,
+    StaticSceneContent,
     level_from_percent,
 )
 from .zigbee import ZhaSceneTransport, async_zone_lamps
@@ -59,7 +72,8 @@ from .zigbee import ZhaSceneTransport, async_zone_lamps
 _LOGGER = logging.getLogger(__name__)
 
 SAVE_DELAY = 5
-STANDARD_SCENE_IDS = [scene.scene_id for scene in STANDARD_SCENES.values()]
+# ids of the standard and saved scenes, stored under the zone's group
+ZONE_SCENE_IDS = [*(scene.scene_id for scene in STANDARD_SCENES.values()), *CAPTURED_SCENE_IDS]
 
 
 class ZhaScenesStore(Store[dict[str, Any]]):
@@ -148,6 +162,22 @@ class ZhaScenesManager:
         palettes = [self.palettes[p] for p in zone.palettes if p in self.palettes]
         return sorted(palettes, key=lambda palette: self.palette_name(palette).casefold())
 
+    @callback
+    def capture_lamp_states(self, zone: ZoneConfig) -> dict[str, LampState]:
+        """
+        Return the current state of a zone's lamps by IEEE, to save as a scene.
+
+        Unavailable lamps are left out.
+
+        :raises HomeAssistantError: The zone's group or light is unknown.
+        """
+        return {
+            lamp.ieee: _lamp_state(lamp, state)
+            for lamp in async_zone_lamps(self.hass, zone)
+            if (state := self.hass.states.get(lamp.entity_id)) is not None
+            and state.state in (STATE_ON, STATE_OFF)
+        }
+
     async def async_activate(
         self,
         zone_id: str,
@@ -159,17 +189,17 @@ class ZhaScenesManager:
         context: Context | None = None,
     ) -> None:
         """
-        Start a standard scene or a palette on a zone.
+        Start a standard scene, a saved scene or a palette on a zone.
 
-        The lamps recall a standard scene; it is stored in lamps that do not store it yet.
-        On/off lights store no standard scene and are switched on or off instead.
+        The lamps recall a standard or saved scene; it is stored in lamps that do not store it
+        yet. On/off lights store no such scene and are switched on or off instead.
         Dynamic lamps animate a palette; the other lights get a static colour or colour
         temperature from it. Then sends `SIGNAL_ZONE_ACTIVATED` for the zone.
 
         :param zone_id: `ZoneConfig.zone_id` of the zone.
-        :param key: Key of a standard scene or id of a palette.
+        :param key: Key of a standard or saved scene, or id of a palette.
         :param speed: Animation speed 0..1 instead of the palette's; not used by a standard
-            scene.
+            or saved scene.
         :param brightness: Brightness 1..255 for all lamps instead of the scene's.
         :param transition: Transition time in seconds.
         :raises HomeAssistantError: The zone's group or light is unknown or could not be
@@ -181,11 +211,12 @@ class ZhaScenesManager:
             zone = self.zones[zone_id]
             lamps = async_zone_lamps(self.hass, zone)
             try:
-                if (scene := STANDARD_SCENES.get(key)) is not None:
+                if (recall := self._static_contents(zone, lamps, key)) is not None:
+                    scene_id, contents = recall
                     await self._engine.async_recall(
                         zone,
-                        scene.scene_id,
-                        [(lamp, self._standard_content(lamp, scene)) for lamp in lamps],
+                        scene_id,
+                        contents,
                         partial(self._async_set_lamp, context=context),
                         brightness=None if brightness is None else min(MAX_LEVEL, brightness),
                         transition=None if transition is None else round(transition * 10),
@@ -222,13 +253,23 @@ class ZhaScenesManager:
             self.palettes.pop(palette_id, None)
         self._library_updated()
 
+    async def async_remove_scenes(self, zone: ZoneConfig, scene_ids: Iterable[int]) -> None:
+        """
+        Remove standard or saved scenes of a zone from its lamps.
+
+        A lamp that does not answer is logged and may keep a scene.
+
+        :raises HomeAssistantError: The zone's group or light is unknown.
+        """
+        await self._engine.async_remove(zone, scene_ids, async_zone_lamps(self.hass, zone))
+
     @callback
     def async_rewrite_zone(self, zone_id: str) -> None:
         """Write the zone's scenes to the lamps again on the next activation of each."""
         zone = self.zones[zone_id]
         self._cache.forget_zone(zone_id)
         self._cache.forget_scenes(
-            SCENE_GROUP if zone.group_id is None else zone.group_id, STANDARD_SCENE_IDS, zone.ieee
+            SCENE_GROUP if zone.group_id is None else zone.group_id, ZONE_SCENE_IDS, zone.ieee
         )
 
     @callback
@@ -238,8 +279,8 @@ class ZhaScenesManager:
 
     @callback
     def forget_group(self, group_id: int) -> None:
-        """Forget the standard scenes stored under a group, so they are written again when used."""
-        self._cache.forget_scenes(group_id, STANDARD_SCENE_IDS)
+        """Forget the scenes stored under a group, so they are written again when used."""
+        self._cache.forget_scenes(group_id, ZONE_SCENE_IDS)
 
     async def _async_turn_on(
         self,
@@ -349,25 +390,30 @@ class ZhaScenesManager:
     async def _async_set_lamp(
         self,
         lamp: Lamp,
-        content: ColorTemperatureSceneContent,
+        content: StaticSceneContent,
         transition: int,
         *,
         context: Context | None,
     ) -> bool:
         """
-        Set a lamp to a standard scene state through Home Assistant; return whether it worked.
+        Set a lamp to a scene state through Home Assistant; return whether it worked.
 
-        An on/off light is switched on at the full level and off otherwise.
+        A lamp that is off in the scene is switched off; an on/off light is switched on at the
+        full level and off otherwise.
         """
         service = SERVICE_TURN_ON
         data: dict[str, Any] = {ATTR_ENTITY_ID: lamp.entity_id}
-        if lamp.kind is LampKind.ON_OFF:
+        if not content.on:
+            service = SERVICE_TURN_OFF
+        elif lamp.kind is LampKind.ON_OFF:
             if content.level < MAX_LEVEL:
                 service = SERVICE_TURN_OFF
         else:
             data[ATTR_BRIGHTNESS] = content.level
             data[ATTR_TRANSITION] = transition / 10
-            if content.mireds is not None:
+            if content.xy is not None:
+                data[ATTR_XY_COLOR] = content.xy
+            elif content.mireds is not None:
                 data[ATTR_COLOR_TEMP_KELVIN] = color_temperature_mired_to_kelvin(content.mireds)
         try:
             await self.hass.services.async_call(
@@ -379,14 +425,58 @@ class ZhaScenesManager:
         return True
 
     @callback
-    def _standard_content(self, lamp: Lamp, scene: StandardScene) -> ColorTemperatureSceneContent:
+    def _static_contents(
+        self, zone: ZoneConfig, lamps: list[Lamp], key: str
+    ) -> tuple[int, list[tuple[Lamp, StaticSceneContent]]] | None:
+        """
+        Return the scene id and the lamps' contents of a standard or saved scene.
+
+        :return: None for a palette.
+        """
+        if (scene := STANDARD_SCENES.get(key)) is not None:
+            return scene.scene_id, [(lamp, self._standard_content(lamp, scene)) for lamp in lamps]
+        for captured in zone.captured_scenes:
+            if captured.key == key:
+                # lamps without a saved state are left alone
+                return captured.scene_id, [
+                    (lamp, _captured_content(captured.lamps[lamp.ieee]))
+                    for lamp in lamps
+                    if lamp.ieee in captured.lamps
+                ]
+        return None
+
+    @callback
+    def _standard_content(self, lamp: Lamp, scene: StandardScene) -> StaticSceneContent:
         """Return what a lamp stores for a standard scene, with the lamp's correction applied."""
         mireds = None
         if lamp.max_mireds is not None:
             mireds = scene.mireds
             if (kelvin := self._corrections.get(lamp.ieee)) is not None:
                 mireds = corrected_mireds(mireds, lamp.max_mireds, 1_000_000 / kelvin)
-        return ColorTemperatureSceneContent(level_from_percent(scene.brightness), mireds)
+        return StaticSceneContent(level_from_percent(scene.brightness), mireds)
+
+
+def _lamp_state(lamp: Lamp, state: State) -> LampState:
+    """Return the state a saved scene stores for a lamp, from its Home Assistant state."""
+    if state.state == STATE_OFF:
+        return LampState(on=False)
+    if lamp.kind is LampKind.ON_OFF:
+        return LampState(on=True)
+    level = min(MAX_LEVEL, state.attributes[ATTR_BRIGHTNESS])
+    color_mode = state.attributes.get(ATTR_COLOR_MODE)
+    if color_mode == ColorMode.COLOR_TEMP:
+        kelvin = state.attributes[ATTR_COLOR_TEMP_KELVIN]
+        return LampState(on=True, level=level, mireds=color_temperature_kelvin_to_mired(kelvin))
+    if color_mode in COLOR_MODES_COLOR:
+        return LampState(on=True, level=level, xy=tuple(state.attributes[ATTR_XY_COLOR]))
+    return LampState(on=True, level=level)
+
+
+def _captured_content(state: LampState) -> StaticSceneContent:
+    """Return what a lamp stores for its state in a saved scene."""
+    # an on/off light has no level, the full level switches it on
+    level = MAX_LEVEL if state.level is None else state.level
+    return StaticSceneContent(level, state.mireds, xy=state.xy, on=state.on)
 
 
 def _scene_content(target: LampTarget, gradient: bool) -> PaletteContent:

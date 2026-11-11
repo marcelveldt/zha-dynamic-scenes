@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import probatio
@@ -14,15 +15,22 @@ from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 from custom_components.zha_scenes.builtin import STANDARD_SCENES
 from custom_components.zha_scenes.const import CONF_ZONES, DOMAIN
 from custom_components.zha_scenes.engine import TransportError
-from custom_components.zha_scenes.protocol import dynamic_palette_payload
+from custom_components.zha_scenes.models import Lamp
+from custom_components.zha_scenes.protocol import (
+    CMD_ENHANCED_ADD_SCENE,
+    CMD_REMOVE_SCENE,
+    dynamic_palette_payload,
+    remove_scene_payload,
+)
 
 from .common import BLUE, GREEN, RED, FakeTransport, palette
-from .conftest import GROUP
+from .conftest import GROUP, ZONE_ID
 
 SCENE_A = "scene.zone_group_custom_a"
 SCENE_B = "scene.zone_group_custom_b"
 SCENE_BLOSSOM = "scene.zone_group_blossom"
 SCENE_COOL_BRIGHT = "scene.zone_group_cool_bright"
+SCENE_RELAX = "scene.zone_group_relax"
 SELECT = "select.zone_group_scene"
 COLORS = [RED.xy, GREEN.xy, BLUE.xy]
 
@@ -230,6 +238,59 @@ async def test_setup_removes_scenes_no_longer_offered(
     assert {
         entity_id: entity_registry.async_get(entity_id).id for entity_id in (SCENE_A, SELECT)
     } == kept
+
+
+async def test_deselected_standard_scene_is_removed(
+    hass: HomeAssistant,
+    loaded: MockConfigEntry,
+    transport: FakeTransport,
+    entity_registry: er.EntityRegistry,
+    lamps: list[Lamp],
+) -> None:
+    async_mock_service(hass, "light", "turn_on")
+    await hass.services.async_call("scene", "turn_on", {ATTR_ENTITY_ID: SCENE_RELAX}, blocking=True)
+    transport.requests.clear()
+
+    kept = [key for key in STANDARD_SCENES if key != "relax"]
+    await _choose(hass, loaded, [*kept, "custom:a", "custom:b"])
+
+    assert loaded.options[CONF_ZONES][0]["standard_scenes"] == kept
+    assert hass.states.get(SCENE_RELAX) is None
+    assert entity_registry.async_get(SCENE_RELAX) is None
+    assert "Relax" not in hass.states.get(SELECT).attributes["options"]
+    # saving the zone removes it from the lamps
+    assert transport.requests == [
+        (zone_lamp.ieee, CMD_REMOVE_SCENE, remove_scene_payload(GROUP, 11)) for zone_lamp in lamps
+    ]
+
+    # palettes stay in the lamps; a standard scene chosen again is written at its next start
+    transport.requests.clear()
+    await _choose(hass, loaded, [*STANDARD_SCENES, "custom:a"])
+    assert transport.requests == []
+    await hass.services.async_call("scene", "turn_on", {ATTR_ENTITY_ID: SCENE_RELAX}, blocking=True)
+    assert {
+        ieee for ieee, command, _ in transport.requests if command == CMD_ENHANCED_ADD_SCENE
+    } == {zone_lamp.ieee for zone_lamp in lamps}
+
+
+async def _choose(hass: HomeAssistant, entry: MockConfigEntry, scenes: list[str]) -> None:
+    """Choose the scenes the zone offers in the options flow and save the zone."""
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_zone"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"zone": ZONE_ID})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "zone_scenes"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"scenes": scenes}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "save"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
 
 
 async def _offer(hass: HomeAssistant, entry: MockConfigEntry, palettes: list[str]) -> None:

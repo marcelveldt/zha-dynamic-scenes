@@ -23,14 +23,17 @@ with another Signify Scenes command (`0x02`) that carries on, level, transition 
 ## Concepts
 
 - **Standard scene**: one of the nine whites of the Hue app (Dimmed, Relax, Read, Bright, Nightlight,
-  Concentrate, Energize, Rest, Cool bright) with a fixed brightness and colour temperature. Every zone offers
-  all of them.
+  Concentrate, Energize, Rest, Cool bright) with a fixed brightness and colour temperature. A zone offers
+  the ones chosen for it, all of them unless chosen otherwise.
 - **Palette**: colours (CIE xy with a brightness), a speed and an optional colour temperature for lamps
-  without colour. A palette is built-in (see below) or custom, added in the options.
+  without colour. A palette is built-in (see below) or custom, added in the options. The user interface
+  calls palettes dynamic scenes.
+- **Saved scene**: the state of a zone's lamps saved in the options, a static scene of that zone (see
+  below).
 - **Zone**: a ZHA group. A start is one groupcast to the group, so all lamps start at the same moment. A
   zone can also be a single ZHA light (ZHA makes no group light for a group of one): its starts are unicasts
-  to the lamp, and it has no clusters. A zone offers the standard scenes and the palettes chosen for it, if
-  any.
+  to the lamp, and it has no clusters. A zone offers the standard scenes and palettes chosen for it, and
+  its saved scenes.
 - **Cluster**: lamps of a zone that must share a start colour, for example a pair of lamps on both sides
   of a door. Every other lamp is a cluster of its own.
 
@@ -39,14 +42,16 @@ with another Signify Scenes command (`0x02`) that carries on, level, transition 
 ```
 custom_components/zha_scenes/
   protocol.py     ZCL frame encoding, no Home Assistant or zigpy imports
-  engine.py       start colours, scene cache, palette start and standard scene recall over a transport,
-                  lamp correction
+  engine.py       start colours, scene cache, palette start, recall and removal of standard and saved
+                  scenes over a transport, lamp correction
   zigbee.py       ZHA access: zone lamps, lamp capabilities, frames through ZHA's zigpy application
-  manager.py      runtime: palette library, zones, activation (Zigbee and plain light calls)
+  manager.py      runtime: palette library, zones, activation (Zigbee and plain light calls), lamp
+                  states for saved scenes
   builtin.py      the built-in palettes (palettes.json), the standard scenes and their translated names
-  models.py       palettes, standard scenes, zones, lamps
-  config_flow.py  setup and the options flow for palettes, zones, clusters and lamp corrections
-  scene.py        one scene entity per standard scene and per palette a zone offers
+  models.py       palettes, standard and saved scenes, zones, lamps
+  config_flow.py  setup and the options flow for palettes, zones and their scenes, clusters and lamp
+                  corrections
+  scene.py        one scene entity per standard scene, saved scene and palette a zone offers
   select.py       one select entity per zone
   services.py     `activate` on the scene entities, `rewrite_scenes` on the select entities
 ```
@@ -57,13 +62,14 @@ Dependencies point inwards: `protocol` knows nothing else, `engine` only knows `
 ## Entities
 
 Every zone has, on the device of its ZHA group (or of its single light), a select entity with the
-standard scenes and the palettes it offers, and a scene entity per standard scene and per offered palette.
-Standard scenes and built-in palettes take their names from the translations, a custom palette its own
-name; the keys of the standard scenes never match a palette id, since both make up the unique ids.
-`scene.turn_on` starts the scene with its own brightness (and a palette with its own speed); the `activate`
-service can override brightness and transition, and a palette's speed. The scene entities follow the
-library and the zone setup: scene entities of palettes a zone no longer offers are removed, also from the
-entity registry.
+standard scenes, saved scenes and palettes it offers, in that order, and a scene entity per offered scene.
+Standard scenes and built-in palettes take their names from the translations, a custom palette or saved
+scene its own name, which no other scene may have since the select lists them by name. The keys of the
+standard scenes never match a palette id or the key of a saved scene (`captured:<ulid>`), since they make
+up the unique ids. `scene.turn_on` starts the scene with its own brightness (and a palette with its own
+speed); the `activate` service can override brightness and transition, and a palette's speed. The scene
+entities follow the library and the zone setup: scene entities of scenes a zone no longer offers are
+removed, also from the entity registry.
 
 ## Built-in palettes
 
@@ -139,6 +145,27 @@ becomes
 so W maps to M and colder whites stay as they are. W lies between P and M. A changed correction changes
 what the lamp should store, so its standard scenes are written again on their next activation.
 
+## Saved scenes
+
+A saved scene holds, per lamp IEEE, the state Home Assistant showed for the lamp when it was saved: off, or
+on with its level and, by its colour mode, a colour temperature or a CIE xy colour. On/off lights are only
+on or off; lamps that were unavailable have no state and are left alone. The zone keeps its saved scenes
+in the entry options (`captured_scenes`), for example `{"key": "captured:<ulid>", "name": "Evening",
+"scene_id": 32, "lamps": {"00:17:88:01:00:00:00:01": {"on": true, "level": 143, "xy": [0.5, 0.41]},
+"00:17:88:01:00:00:00:02": {"on": false}}}`.
+
+A saved scene is a plain ZCL scene like a standard scene, with an id from `0x20`-`0x7F` (the lowest one the
+zone does not use when the scene is saved) under the zone's group, or group `0x0000` for a single light.
+It is written and recalled like a standard scene. Signify lamps store a lamp that is off as on/off 0 only,
+a colour as on, level, x and y (the colour set of the palette scenes) and a colour temperature like a
+standard scene. A gradient lamp shows one colour. Saved values get no lamp correction: they are what the
+lamp showed. Replacing the state of a saved scene keeps its id; the lamps get the new content on its next
+activation.
+
+Standard and saved scenes a zone no longer offers are removed from its lamps with a Remove Scene when the
+zone is saved; a lamp that does not answer is logged and may keep the scene. Scene ids `0`-`9` are never
+used, so switches bound to the zone's group can keep their own scenes there.
+
 ## Scene slots and the cache
 
 Scenes are written lazily: a palette gets a scene id (`0x80`-`0xFE`) the first time it is started in a
@@ -155,12 +182,13 @@ The cache of slots, stored contents and which lamps show gradients is kept in Ho
 (`.storage/zha_scenes`), next to the custom palettes. Stored contents are keyed by lamp IEEE and by
 `<group id>:<scene id>`, both decimal. A standard scene's content is `{"level": <1..254>, "mireds": <mired
 or null>}`, so lamps that already hold a standard scene can be seeded, for example
-`"scenes": {"00:17:88:01:00:00:00:01": {"56722:11": {"level": 143, "mireds": 447}}}`.
+`"scenes": {"00:17:88:01:00:00:00:01": {"56722:11": {"level": 143, "mireds": 447}}}`. A saved scene's
+content has the same form, with `"xy": [x, y]` for a colour and `"on": false` for a lamp that is off.
 
 The cache is cleared for a lamp when ZHA reports it joined with a new address (a reset lamp does) or was
-removed, and for a group's standard scenes when a lamp leaves that group. The `rewrite_scenes` service
-clears a zone's scenes by hand, for scenes removed by other means. Each is written again on its next
-activation.
+removed, and for a group's standard and saved scenes when a lamp leaves that group. The `rewrite_scenes`
+service clears a zone's scenes by hand, for scenes removed by other means. Each is written again on its
+next activation.
 
 When a lamp's scene table is full, the zone's least recently used palette slot is removed from its lamps
 and the write is retried once.

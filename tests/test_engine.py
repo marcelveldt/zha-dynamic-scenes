@@ -1,5 +1,6 @@
 """Start colours, lazy scene slots and LRU eviction, standard scenes and their correction."""
 
+from dataclasses import replace
 import json
 import struct
 from unittest.mock import Mock
@@ -36,12 +37,12 @@ from custom_components.zha_scenes.protocol import (
     CMD_STORE_SCENE,
     STATUS_INSUFFICIENT_SPACE,
     STATUS_SUCCESS,
-    ColorTemperatureSceneContent,
     GradientSceneContent,
     SceneContent,
-    add_color_temperature_scene_payload,
+    StaticSceneContent,
     add_empty_scene_payload,
     add_scene_payload,
+    add_static_scene_payload,
     dynamic_palette_payload,
     gradient_scene_payload,
     move_to_level_payload,
@@ -69,8 +70,11 @@ LIGHT_ZONE = ZoneConfig(group_id=None, entity_id="light.lamp_01", ieee=lamp(1).i
 CONTENT_A = SceneContent(level=200, x=20000, y=20000)
 CONTENT_B = SceneContent(level=100, x=30000, y=10000)
 GRADIENT_A = GradientSceneContent(level=200, points=((0.6, 0.3), (0.2, 0.7)), style=0x00)
-WHITE = ColorTemperatureSceneContent(level=143, mireds=447)
-LEVEL_ONLY = ColorTemperatureSceneContent(level=143, mireds=None)
+WHITE = StaticSceneContent(level=143, mireds=447)
+LEVEL_ONLY = StaticSceneContent(level=143, mireds=None)
+# saved scenes: a lamp in a colour and a lamp that is off
+COLOR = StaticSceneContent(level=200, mireds=None, xy=(0.5, 0.4))
+OFF = StaticSceneContent(level=254, mireds=None, on=False)
 # a lamp that is not a Hue lamp, like a GLEDOPTO LED controller
 OTHER = lamp(5, LampKind.COLOR_TEMP, signify=False, max_mireds=495)
 # a relay that only switches on and off
@@ -84,11 +88,9 @@ class Setter:
         """Initialize the setter; lamps in `failing` cannot be set."""
         self.transport = transport
         self.failing = failing
-        self.calls: list[tuple[str, ColorTemperatureSceneContent, int, int]] = []
+        self.calls: list[tuple[str, StaticSceneContent, int, int]] = []
 
-    async def __call__(
-        self, lamp: Lamp, content: ColorTemperatureSceneContent, transition: int
-    ) -> bool:
+    async def __call__(self, lamp: Lamp, content: StaticSceneContent, transition: int) -> bool:
         """Record a lamp being set."""
         self.calls.append((lamp.ieee, content, transition, len(self.transport.requests)))
         return lamp.ieee not in self.failing
@@ -447,12 +449,12 @@ async def test_hue_lamps_store_the_standard_scene_silently_then_recall_it() -> N
         (
             lamp(1).ieee,
             CMD_ENHANCED_ADD_SCENE,
-            add_color_temperature_scene_payload(GROUP, 11, WHITE, 4),
+            add_static_scene_payload(GROUP, 11, WHITE, 4),
         ),
         (
             white.ieee,
             CMD_ENHANCED_ADD_SCENE,
-            add_color_temperature_scene_payload(GROUP, 11, LEVEL_ONLY, 4),
+            add_static_scene_payload(GROUP, 11, LEVEL_ONLY, 4),
         ),
     ]
     recall = (GROUP, CLUSTER_SCENES, CMD_RECALL_SCENE, recall_scene_payload(GROUP, 11))
@@ -470,13 +472,13 @@ async def test_hue_lamps_store_the_standard_scene_silently_then_recall_it() -> N
     assert transport.group_commands == [recall, recall]
 
     # other content, like a changed lamp correction, is written again
-    corrected = ColorTemperatureSceneContent(level=143, mireds=495)
+    corrected = StaticSceneContent(level=143, mireds=495)
     await engine.async_recall(ZONE, 11, [(lamp(1), corrected), (white, LEVEL_ONLY)], setter)
     assert transport.requests == [
         (
             lamp(1).ieee,
             CMD_ENHANCED_ADD_SCENE,
-            add_color_temperature_scene_payload(GROUP, 11, corrected, 4),
+            add_static_scene_payload(GROUP, 11, corrected, 4),
         )
     ]
 
@@ -511,7 +513,7 @@ async def test_other_lamp_is_set_to_the_scene_and_stores_its_state() -> None:
         (
             lamp(1).ieee,
             CMD_ENHANCED_ADD_SCENE,
-            add_color_temperature_scene_payload(GROUP, 10, WHITE, 4),
+            add_static_scene_payload(GROUP, 10, WHITE, 4),
         ),
         (OTHER.ieee, CMD_ENHANCED_ADD_SCENE, add_empty_scene_payload(GROUP, 10, 4)),
         (OTHER.ieee, CMD_STORE_SCENE, store_scene_payload(GROUP, 10)),
@@ -532,7 +534,7 @@ async def test_other_lamp_is_set_to_the_scene_and_stores_its_state() -> None:
 async def test_on_off_lights_store_nothing_and_are_set_after_the_recall() -> None:
     transport, cache, engine = _engine()
     setter = Setter(transport)
-    full = ColorTemperatureSceneContent(level=254, mireds=None)
+    full = StaticSceneContent(level=254, mireds=None)
     for _ in range(2):
         await engine.async_recall(
             ZONE, 12, [(lamp(1), WHITE), (RELAY, full)], setter, brightness=100
@@ -576,7 +578,7 @@ async def test_single_light_zone_stores_in_group_zero_and_recalls_with_unicasts(
     await engine.async_recall(LIGHT_ZONE, 13, [(lamp(1), WHITE)], setter, brightness=50)
 
     assert transport.requests == [
-        (lamp(1).ieee, CMD_ENHANCED_ADD_SCENE, add_color_temperature_scene_payload(0, 13, WHITE, 4))
+        (lamp(1).ieee, CMD_ENHANCED_ADD_SCENE, add_static_scene_payload(0, 13, WHITE, 4))
     ]
     assert transport.commands == [
         (lamp(1).ieee, CLUSTER_SCENES, CMD_RECALL_SCENE, recall_scene_payload(0, 13)),
@@ -611,7 +613,7 @@ async def test_lamps_without_room_are_skipped_and_set_instead(
     assert cache.stored(OTHER.ieee, GROUP, 18) is None
     assert cache.stored(lamp(2).ieee, GROUP, 18) == WHITE
     # after the recall, with the zone's brightness and the stored transition
-    dimmed = ColorTemperatureSceneContent(level=200, mireds=447)
+    dimmed = StaticSceneContent(level=200, mireds=447)
     assert sorted(setter.calls) == sorted(
         [(lamp(1).ieee, dimmed, 4, 3), (OTHER.ieee, dimmed, 4, 3)]
     )
@@ -679,3 +681,69 @@ def test_standard_scene_content_in_the_cache() -> None:
     restored = SceneCache(json.loads(json.dumps(cache.as_dict())), Mock())
     assert restored.stored(lamp(1).ieee, GROUP, 10) == WHITE
     assert restored.stored(lamp(2).ieee, GROUP, 10) == LEVEL_ONLY
+
+
+def test_saved_scene_content_in_the_cache() -> None:
+    cache = SceneCache({}, Mock())
+    cache.set_stored(lamp(1).ieee, GROUP, 0x20, COLOR)
+    cache.set_stored(lamp(2).ieee, GROUP, 0x20, OFF)
+    cache.set_stored(lamp(3).ieee, GROUP, 0x20, WHITE)
+    # colour and off only when set, so a standard scene keeps its form
+    assert cache.as_dict()["scenes"] == {
+        lamp(1).ieee: {"56722:32": {"level": 200, "mireds": None, "xy": [0.5, 0.4]}},
+        lamp(2).ieee: {"56722:32": {"level": 254, "mireds": None, "on": False}},
+        lamp(3).ieee: {"56722:32": {"level": 143, "mireds": 447}},
+    }
+    restored = SceneCache(json.loads(json.dumps(cache.as_dict())), Mock())
+    assert restored.stored(lamp(1).ieee, GROUP, 0x20) == COLOR
+    assert restored.stored(lamp(2).ieee, GROUP, 0x20) == OFF
+    assert restored.stored(lamp(3).ieee, GROUP, 0x20) == WHITE
+
+
+async def test_standard_scene_stored_in_the_old_form_is_not_written_again() -> None:
+    transport = FakeTransport()
+    data = {"scenes": {lamp(1).ieee: {"56722:11": {"level": 143, "mireds": 447}}}}
+    engine = SceneEngine(transport, SceneCache(data, Mock()))
+    await engine.async_recall(ZONE, 11, [(lamp(1), WHITE)], Setter(transport))
+    assert transport.requests == []
+    assert len(transport.group_commands) == 1
+
+
+async def test_lamp_that_is_off_stays_off_when_set_with_another_brightness() -> None:
+    transport, _, engine = _engine()
+    setter = Setter(transport)
+    transport.answers[lamp(1).ieee] = [None]
+    await engine.async_recall(ZONE, 0x20, [(lamp(1), OFF)], setter, brightness=100)
+
+    # it could not store the scene and is set after the recall, still off
+    assert setter.calls == [(lamp(1).ieee, replace(OFF, level=100), 4, 1)]
+    assert not setter.calls[0][1].on
+
+
+async def test_remove_scenes_from_the_lamps_of_a_zone(caplog: pytest.LogCaptureFixture) -> None:
+    transport, cache, engine = _engine()
+    for ieee in (lamp(1).ieee, lamp(2).ieee):
+        cache.set_stored(ieee, GROUP, 11, WHITE)
+        cache.set_stored(ieee, GROUP, 0x20, COLOR)
+        cache.set_stored(ieee, 0, 0x80, CONTENT_A)
+    transport.answers[lamp(2).ieee] = [STATUS_SUCCESS, None]
+
+    await engine.async_remove(ZONE, {0x20, 11}, [lamp(1), lamp(2), RELAY])
+
+    # on/off lights store none of them
+    assert transport.requests == [
+        (ieee, CMD_REMOVE_SCENE, remove_scene_payload(GROUP, scene_id))
+        for ieee in (lamp(1).ieee, lamp(2).ieee)
+        for scene_id in (11, 0x20)
+    ]
+    for ieee in (lamp(1).ieee, lamp(2).ieee):
+        assert cache.stored(ieee, GROUP, 11) is None
+        assert cache.stored(ieee, GROUP, 0x20) is None
+        assert cache.stored(ieee, 0, 0x80) == CONTENT_A
+    assert "light.lamp_02 did not answer the removal of scene 0x20 of zone 56722" in caplog.text
+    assert "scene 0x0b" not in caplog.text
+
+    # a single light stores them in group 0x0000
+    transport.requests.clear()
+    await engine.async_remove(LIGHT_ZONE, [0x20], [lamp(1)])
+    assert transport.requests == [(lamp(1).ieee, CMD_REMOVE_SCENE, remove_scene_payload(0, 0x20))]
