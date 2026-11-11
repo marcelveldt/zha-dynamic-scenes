@@ -90,7 +90,7 @@
       },
       "zone_palettes": {
         "title": "Paletten van de zone",
-        "description": "De zone biedt elk gekozen palet aan als scène, naast de standaardscènes.",
+        "description": "De zone biedt altijd de standaardscènes aan, plus een scène per gekozen palet. Paletten zijn optioneel.",
         "data": {
           "palettes": "Paletten"
         }
@@ -127,7 +127,6 @@
       "name_taken": "Een standaardscène of een ander palet heeft deze naam al.",
       "invalid_colors": "Geef 2 tot 9 kleuren op als hex RGB, bijvoorbeeld #ff8800.",
       "cluster_too_small": "Een cluster heeft minstens twee lampen nodig.",
-      "no_palettes": "Kies minstens één palet.",
       "invalid_warmest_white": "Geef een waarde uit het bereik hierboven."
     },
     "abort": {

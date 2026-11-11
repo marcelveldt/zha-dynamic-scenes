@@ -29,7 +29,7 @@ the host, and lamps that share a colour stay in sync.
 2. Select *Configure* on the integration to set it up:
    - **Palettes** (optional): add your own palettes from hex colours, next to the built-in ones.
    - **Zones:** pick a ZHA group (or a single ZHA light) and choose the palettes it offers, from the
-     built-in palettes and your own.
+     built-in palettes and your own. A zone without palettes offers only the standard scenes.
    - **Clusters** (optional): lamps of a zone that always share a colour, for example the two lamps on
      both sides of a door.
    - **Lamp correction** (optional): some LED controllers show warm whites too cold. Enter the warmest
