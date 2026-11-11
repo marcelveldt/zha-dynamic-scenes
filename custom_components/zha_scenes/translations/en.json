@@ -78,8 +78,8 @@
         }
       },
       "zone": {
-        "title": "Zone {zone}",
-        "description": "Clusters (lamps that start with the same colour):\n{clusters}",
+        "title": "Edit a zone",
+        "description": "**{zone}**\n\nClusters (lamps that start with the same colour):\n{clusters}",
         "menu_options": {
           "zone_scenes": "Choose the scenes",
           "capture_scene": "Save the current state as a scene",
