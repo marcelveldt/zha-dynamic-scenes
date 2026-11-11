@@ -74,9 +74,9 @@ async def test_activate_gradient_lamp(
 
     await manager.async_activate(ZONE_ID, "custom:a")
 
-    # the gradient lamp stores the palette as its gradient
+    # the gradient lamp stores the palette colours as its gradient, along the shortest path
     gradient = GradientSceneContent.from_gradient(
-        [RED.xy, GREEN.xy, BLUE.xy], GradientMode.INTERPOLATED_PALETTE, 80.0
+        [RED.xy, BLUE.xy, GREEN.xy], GradientMode.INTERPOLATED_PALETTE, 80.0
     )
     assert transport.signify_requests == [
         (lamp(1).ieee, CMD_ADD_HUE_SCENE, gradient_scene_payload(0, 0x80, gradient, 4))
