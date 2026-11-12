@@ -22,8 +22,9 @@ change at the same moment, and nothing keeps running in Home Assistant.
 ## Requirements
 
 - Home Assistant 2026.11 or newer, with ZHA.
-- Standard and saved scenes work on every ZHA light that supports scenes. Lights that only switch on
-  and off are on in the bright scenes and off in the dim ones.
+- Standard and saved scenes work on every ZHA light that supports scenes. A light that only switches
+  on and off is on in the standard scenes at full brightness and off in the others, and a saved scene
+  keeps it the way you saved it.
 - Dynamic scenes need Hue colour lamps with up-to-date firmware. Other lights in the same zone get a
   fixed colour or white from the scene.
 
@@ -41,8 +42,8 @@ configuration and restart Home Assistant.
 1. Go to **Settings > Devices & services > Add integration** and pick **ZHA Scenes**.
 2. Select **Configure** on ZHA Scenes, then **Add a zone**. A zone is a ZHA group whose lights change
    scene together, or a single ZHA light.
-3. Choose the scenes the zone offers. A new zone has all standard scenes; add the dynamic scenes you
-   like.
+3. Choose the scenes the zone offers and select **Save**. A new zone has all standard scenes; add the
+   dynamic scenes you like.
 4. Start a scene with the zone's **Scene** select, or with its scene entities from a dashboard, an
    automation or a voice assistant.
 
@@ -51,10 +52,10 @@ away.
 
 ## Managing a zone
 
-Select **Configure > Edit a zone**:
+Select **Configure > Edit a zone**, make your changes and select **Save**:
 
 - **Choose the scenes:** untick the standard scenes a zone never uses, and add or remove dynamic
-  scenes. Scenes you remove are also removed from the lamps when you save the zone.
+  scenes. Standard scenes you untick are also removed from the lamps when you save the zone.
 - **Save the current state as a scene:** set the lights the way you like first. Every lamp keeps its
   on or off state, brightness and colour. Rename, update or delete it later with **Edit a saved scene**.
 - **Clusters:** lamps that always share the same colour in a dynamic scene, for example the two lamps on
