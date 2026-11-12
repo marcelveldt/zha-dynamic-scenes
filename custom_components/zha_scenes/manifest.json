@@ -1,6 +1,7 @@
 {
   "domain": "zha_scenes",
   "name": "ZHA Scenes",
+  "categories": ["lighting"],
   "codeowners": ["@marcelveldt"],
   "config_flow": true,
   "dependencies": ["zha"],
