@@ -11,8 +11,9 @@ from the Hue app:
 
 - **Standard scenes:** the nine whites of the Hue app, like Relax, Read, Concentrate and Nightlight, on
   any ZHA light.
-- **Dynamic scenes:** 44 animated scenes from the Hue gallery, like Golden pond and Rolling hills.
-  Gradient lamps, like the Signe, show the colours along the lamp.
+- **Dynamic scenes:** 44 animated scenes from the Hue gallery, like Golden pond and Rolling hills. They
+  play on Hue colour lamps; other lights get a fixed colour from the scene. Gradient lamps, like the
+  Signe, show the colours along the lamp.
 - **Your own scenes:** set the lights the way you like and save that as a scene, or make a dynamic scene
   from your own colours.
 
