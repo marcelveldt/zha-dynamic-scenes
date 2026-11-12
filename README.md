@@ -21,7 +21,8 @@ from the Hue app:
 ZHA Scenes stores every scene in the lamps themselves, just like a Hue bridge does:
 
 - **One command starts a scene.** Home Assistant sends a single Zigbee command to the whole zone, and
-  every lamp switches at the same moment. Only the very first start stores the scene in each lamp.
+  every lamp switches at the same moment. Storing a scene in the lamps (on its first start or after a
+  change) and lights that cannot store it take a few more.
 - **The lamps play the animation.** Once started, a dynamic scene runs on the lamps on its own, without
   any further Zigbee traffic. Integrations that animate colours from Home Assistant send every lamp a
   new colour every few seconds: with ten lamps that is easily over ten thousand commands an hour, which
