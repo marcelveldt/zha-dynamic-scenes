@@ -16,8 +16,19 @@ from the Hue app:
 - **Your own scenes:** set the lights the way you like and save that as a scene, or make a dynamic scene
   from your own colours.
 
-The lamps store the scenes and play the animations themselves, just like with a Hue bridge. All lights
-change at the same moment, and nothing keeps running in Home Assistant.
+## Why scenes in the lamps
+
+ZHA Scenes stores every scene in the lamps themselves, just like a Hue bridge does:
+
+- **One command starts a scene.** Home Assistant sends a single Zigbee command to the whole zone, and
+  every lamp switches at the same moment. Storing a scene in the lamps (on its first start or after a
+  change) and lights that cannot store it take a few more.
+- **The lamps play the animation.** Once started, a dynamic scene runs on the lamps on its own, without
+  any further Zigbee traffic. Integrations that animate colours from Home Assistant send every lamp a
+  new colour every few seconds: with ten lamps that is easily over ten thousand commands an hour, which
+  can slow down the rest of your Zigbee network.
+- **Easy to use.** Pick a scene instead of setting the brightness and colour of every lamp. Each scene is
+  a regular scene entity for dashboards, automations and voice assistants.
 
 ## Requirements
 
